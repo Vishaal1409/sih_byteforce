@@ -99,6 +99,14 @@ waits for it, and opens the dashboard.
 Options: `--rebuild` regenerates the dataset, `--api-only` skips the dashboard,
 `--no-browser` suppresses the browser window.
 
+> **Windows: clone to a short path.** Playwright ships deeply nested files, and
+> on a system without long-path support enabled the install fails partway with
+> `OSError: [Errno 2] No such file or directory: ...playwright\driver\package\...`.
+> It leaves a *partial* venv — `numpy` present, `pandas` missing — so the
+> failure surfaces later as a confusing `ModuleNotFoundError`. Clone to
+> something like `C:\apix` rather than a deep folder, or
+> [enable long paths](https://pip.pypa.io/warnings/enable-long-paths).
+
 <details>
 <summary>Running the stages by hand</summary>
 
@@ -130,24 +138,24 @@ python db.py info                      # row counts by provenance
 | | |
 |---|---|
 | Index at base period (2026-08-07) | **100.00** |
-| Index at 2026-09-10 | **109.68** (+9.68%) |
+| Index at 2026-09-10 | **109.63** (+9.63%) |
 | Basket | 192 cells — 8 routes × 4 airlines × 6 booking windows |
 | Basket coverage | 100%, 0 cells dropped |
-| Rows | 50,404 raw → 48,692 cleaned (96.6% retained) |
+| Rows | 50,400 raw → 48,688 cleaned (96.6% retained) |
 | Lead-time elasticity | 1.53–1.59 %/day across routes, R² ≈ 0.51 |
 | Backtest | r = **0.967**, MAPE = **2.69%**, 35 days |
 | Tests | **179 passing** |
 
 ### The result worth pointing at
 
-APIx moves **+9.68%** over the window. A naive unweighted average of the same
-fares moves **+14.86%**.
+APIx moves **+9.63%** over the window. A naive unweighted average of the same
+fares moves **+14.87%**.
 
 Most of that difference is not price — it is composition. The 31–45 day booking
 window supplies **34% of raw observations but carries 10% of index weight**, and
 it is the only window whose travel dates reach the October festivals (22.8% of
 its rows, against 0% for every window inside three weeks). A naive average
-therefore reads +36.78% on that bucket alone and −0.16% on the 0–3 day bucket.
+therefore reads +36.76% on that bucket alone and −0.16% on the 0–3 day bucket.
 
 Holding the basket fixed removes that. A simple average cannot. This is the
 case for having an index at all, and it is worked through in

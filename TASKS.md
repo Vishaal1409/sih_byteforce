@@ -541,10 +541,54 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Final checklist (confirm before presenting)
 
-- [ ] Fresh clone of the repo + one command → dashboard running
-- [ ] Every chart on the dashboard populated with data, nothing blank or erroring
-- [ ] Live-scrape button demoed once successfully (or fallback path demoed cleanly)
-- [ ] `/docs` API page loads and endpoints return data
-- [ ] Backtest correlation/MAPE numbers are sane (not suspiciously perfect, not garbage)
-- [ ] README's "simulated vs real" section is accurate and matches what's on screen
-- [ ] All tasks above are `[x]` or `[!]` with a documented reason
+- [x] Fresh clone of the repo + one command → dashboard running
+      - **Done for real**: cloned from GitHub to a clean directory, fresh venv,
+        `pip install -r requirements.txt`, then `python run.py`. It built the whole
+        pipeline from nothing (no `apix.db` in the repo — correctly gitignored) and both
+        services came up: **API in ~2s, dashboard in ~1s**.
+      - **Bug found by doing this properly**: the first attempt failed with
+        `ModuleNotFoundError: No module named 'pandas'` *after* the simulator step had
+        succeeded. Root cause was not the repo — my test clone sat at a very deep path and
+        Playwright's nested files exceeded Windows' 260-char MAX_PATH, so pip aborted
+        partway and left a **partial venv** (numpy present, pandas/fastapi/streamlit
+        missing). Insidious because pip's failure surfaces much later as a confusing import
+        error. Documented in the README with the fix.
+      - Also caught my own shell mistake: `pip install ... | tail -3; echo $?` reports
+        `tail`'s exit code, not pip's, so the failed install looked successful.
+- [x] Every chart on the dashboard populated with data, nothing blank or erroring
+      - Verified against the **fresh clone** by driving headless Chromium: all 5 sections
+        present, **4 plotly charts rendered**, **0 `stException` elements**, 0 tracebacks in
+        the DOM, and real values on screen (APIx 109.63, r=0.967, MAPE 2.69%).
+- [x] Live-scrape button demoed once successfully (or fallback path demoed cleanly)
+      - **Fallback path demoed cleanly**, clicked in a real browser: returns in ~6.5s and
+        renders "FELL BACK TO SIMULATED DATA — these are NOT real quotes", the block reason,
+        and the written rows with a `Source (provenance)` column reading `fallback_simulated`.
+      - A genuinely real result is not currently obtainable: every accessible target blocks
+        automated access and we do not bypass blocks. That is the honest outcome the phase
+        was designed for, not a failure.
+- [x] `/docs` API page loads and endpoints return data
+      - Against the fresh clone: `/docs` HTTP 200 with Swagger UI rendering, and all six
+        endpoint variants return data — `/index` 35 points, weekly 5, monthly 1,
+        `/index/elasticity` 8 routes, `/index/route/DEL/BOM` 35, `/backtest/results` 35.
+- [x] Backtest correlation/MAPE numbers are sane (not suspiciously perfect, not garbage)
+      - **r = 0.9671, MAPE = 2.69%, 35 days.** High agreement without being suspicious —
+        and it is not rigged: the reference is an *unweighted* market mean, a genuinely
+        different estimator from the weighted index, so perfect agreement was never possible.
+      - A test (`test_real_backtest_numbers_are_sane`) asserts 0.70 <= r <= 0.995 and
+        0.2% <= MAPE <= 15%, so a suspiciously perfect result would fail the suite.
+- [x] README's "simulated vs real" section is accurate and matches what's on screen
+      - Checked **programmatically against the running API**, not by eye: the three `source`
+        values documented in the README are exactly `db.SOURCES`; the "50,400 simulated
+        quotes" claim matches the API's `row_counts_by_source`; `is_real_data` is `false` as
+        stated; and every headline figure matches (APIx 109.63, +9.63%, reference +14.87%,
+        MAPE 2.69%).
+      - Corrected during this check: the docs previously quoted 109.68 / +9.68% / 50,404
+        rows, taken from my working database which had accumulated 8 `fallback_simulated`
+        rows from scrape testing. A clean build gives 109.63 / +9.63% / 50,400. README,
+        `methodology.md` §7a and `architecture.md` now carry the reproducible figures.
+- [x] All tasks above are `[x]` or `[!]` with a documented reason
+      - Verified by counting: **55 tasks checked, 0 blocked, 0 unchecked**.
+      - Nothing was marked done without being run. Where a task could not produce its
+        ideal outcome — a genuinely live scrape, or real DGCA reference data — the task
+        was completed via the fallback the spec itself prescribes, and the reason is
+        recorded under that task rather than glossed over.

@@ -27,7 +27,7 @@ flowchart TB
     SCHEMA["<b>One schema for every row</b><br/>db.py · FareQuote<br/>source: simulated / live / fallback_simulated"]
 
     RAW[("fare_quotes<br/>50,400 rows")]
-    CLEAN[("fares_clean<br/>48,692 rows")]
+    CLEAN[("fares_clean<br/>48,688 rows")]
     QUAL[("data_quality_log")]
 
     ETL["etl/clean.py<br/>dedupe · bounds · peer-ratio outliers"]

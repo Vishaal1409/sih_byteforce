@@ -228,8 +228,8 @@ actually is: an **unweighted mean of every observed fare**, rebased to 100.
 | Spearman rank correlation | 0.934 |
 | MAPE | **2.69%** |
 | RMSE | 3.48 index points |
-| Total move, APIx | **+9.68%** |
-| Total move, reference | **+14.86%** |
+| Total move, APIx | **+9.63%** |
+| Total move, reference | **+14.87%** |
 
 ### The gap is the whole argument
 
@@ -256,14 +256,14 @@ The consequence, measured on the same data:
 | Series | Move over the window |
 |---|---|
 | Naive average, 0–3 day window only | −0.16% |
-| Naive average, 31–45 day window only | +36.78% |
-| Naive average, all windows pooled | +16.83% |
-| **APIx (weighted, stratified)** | **+9.68%** |
+| Naive average, 31–45 day window only | +36.76% |
+| Naive average, all windows pooled | +16.85% |
+| **APIx (weighted, stratified)** | **+9.63%** |
 
-The naive average reports a 16.8% price rise. Most of that is not a price rise
+The naive average reports a 16.9% price rise. Most of that is not a price rise
 at all — it is the sample being dominated by long-lead-time quotes that happen
 to point at festival dates. APIx holds the booking-window mix fixed and reports
-+9.68%.
++9.63%.
 
 **This is the case for the index in one table.** It is also why a backtest that
 matched the reference perfectly would be a bad sign, not a good one.
