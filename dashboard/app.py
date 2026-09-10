@@ -19,14 +19,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit.components.v1 import html
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dashboard import theme  # noqa: E402
+from dashboard import hero, theme  # noqa: E402
 
 API_BASE = os.environ.get("APIX_API_BASE", "http://127.0.0.1:8000")
 REQUEST_TIMEOUT = 20
 SCRAPE_TIMEOUT = 180
+HERO_HEIGHT = 440
 
 #: Plotly toolbar: keep the useful controls, drop the clutter, and never
 #: show the Plotly logo in a government-facing demo.
@@ -467,9 +469,37 @@ def section_data_quality(index_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def render_hero() -> None:
+    """3D route-arc hero. Purely decorative — never allowed to break the page."""
+    try:
+        html(
+            hero.render(
+                eyebrow="Live index · SIH26056 · MoSPI",
+                title='Airfare Price Index <span class="grad">— Live</span>',
+                subtitle=(
+                    "A fixed-basket price index tracking Indian domestic airfares "
+                    "across 8 trunk routes, 4 carriers and 6 booking windows — so a "
+                    "move in the number is a move in price, not a change in what "
+                    "happened to be observed."
+                ),
+                height=HERO_HEIGHT,
+            ),
+            height=HERO_HEIGHT + 12,
+            scrolling=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # A missing asset or a WebGL problem must not cost us the dashboard.
+        st.title("APIx — Real-time Airfare Price Index for India")
+        st.caption(
+            "SIH26056 · Ministry of Statistics and Programme Implementation · prototype"
+        )
+        st.caption(f"(hero visual unavailable: {type(exc).__name__})")
+
+
+
+
 def main() -> None:
-    st.title("APIx — Real-time Airfare Price Index for India")
-    st.caption("SIH26056 · Ministry of Statistics and Programme Implementation · prototype")
+    render_hero()
 
     try:
         index_data = api_get("/index", period="daily")
