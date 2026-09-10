@@ -52,16 +52,52 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 1 — Shared data schema
 
-- [ ] Define the canonical fare-quote schema (used by both simulator and real scraper output),
+- [x] Define the canonical fare-quote schema (used by both simulator and real scraper output),
       e.g.:
       `source | airline | origin | dest | travel_date | query_date | advance_purchase_days |
       base_fare | taxes | total_fare | currency | booking_class | is_available | scraped_at`
-- [ ] Create SQLite schema + migration script at `/data/schema.sql`, apply it to create
+      - All 14 fields implemented exactly as listed, plus an `id` primary key.
+      - `source` is CHECK-constrained to `simulated` / `live` / `fallback_simulated` — the
+        simulated-vs-real distinction (CLAUDE.md rule 5) is enforced by the DB, not convention.
+      - Mirrored in Python as the `FareQuote` dataclass in `db.py`, which both the simulator
+        and the scraper will emit, so nothing downstream branches on provenance.
+      - `advance_purchase_days` and `total_fare` are derived on construction if not supplied,
+        so the booking-window definition lives in exactly one place.
+- [x] Create SQLite schema + migration script at `/data/schema.sql`, apply it to create
       `/data/apix.db`
-- [ ] Write a small `db.py` helper (insert quote, bulk insert, query by route/date range) used
+      - Applied via `python db.py init`; idempotent (CREATE ... IF NOT EXISTS), so it is safe
+        to run on every startup. A `schema_version` table records what has been applied.
+      - Judgment call: the schema deliberately does NOT enforce
+        `total_fare = base_fare + taxes`. Phase 4 is specified to *validate and flag* that
+        mismatch, which it cannot do if the DB rejects the row on insert. Real scraped fares
+        break the identity often (surcharges, rounding) and that is a genuine quality signal.
+      - UNIQUE on (source, airline, origin, dest, travel_date, query_date, booking_class) with
+        upsert-on-conflict, so re-running the Phase 2 simulator refreshes rather than
+        duplicating. `booking_class` is in the key so multiple cabins can coexist; Phase 4
+        still dedupes on its specified 5-tuple.
+      - Indexes on route, query_date, source, airline, advance_purchase_days.
+- [x] Write a small `db.py` helper (insert quote, bulk insert, query by route/date range) used
       by everything downstream
-- [ ] Test: insert a dummy row, read it back, confirm schema holds
-- [ ] Commit: "Phase 1: shared schema + db layer"
+      - Judgment call: `db.py` sits at the repo ROOT, not inside a phase directory — every
+        package imports it and TASKS.md refers to it bare.
+      - API: `connect()` (context manager, commit/rollback/close), `init_db()`,
+        `insert_quote()`, `insert_quotes()` (chunked executemany), `query_fares()`,
+        `query_fares_df()` (pandas), `counts_by_source()`, `date_range()`, `count_quotes()`.
+      - `query_fares(date_field=...)` switches between travel_date and query_date: the index
+        series runs along query_date, the booking-window curves along travel_date.
+      - `query_fares(table=...)` is whitelisted to `fare_quotes` / `fares_clean` so Phase 4 can
+        reuse these helpers against the cleaned table without a second query function.
+      - `python db.py info` prints row counts by source, marking synthetic sources
+        "<- NOT REAL DATA".
+- [x] Test: insert a dummy row, read it back, confirm schema holds
+      - `tests/test_db.py`: **27 tests, all passing**. Covers the round-trip, every canonical
+        column present, derived fields, code normalisation, dict-or-dataclass input, rejection
+        of bad source / reversed dates / malformed dates / negative fares, sold-out rows with
+        NULL fares, bulk insert, upsert idempotency, all query filters, and transaction
+        rollback.
+      - Also verified by hand against the real `data/apix.db` (insert -> read back -> row
+        deleted again, leaving the DB empty for Phase 2 to fill).
+- [x] Commit: "Phase 1: shared schema + db layer"
 
 ---
 
