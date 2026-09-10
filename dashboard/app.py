@@ -22,15 +22,37 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from dashboard import theme  # noqa: E402
+
 API_BASE = os.environ.get("APIX_API_BASE", "http://127.0.0.1:8000")
 REQUEST_TIMEOUT = 20
 SCRAPE_TIMEOUT = 180
 
+#: Plotly toolbar: keep the useful controls, drop the clutter, and never
+#: show the Plotly logo in a government-facing demo.
+PLOTLY_CONFIG = {
+    "displaylogo": False,
+    "displayModeBar": False,
+    "responsive": True,
+}
+
 st.set_page_config(
-    page_title="APIx — Airfare Price Index (India)",
-    page_icon="✈",
+    page_title="APIx · Airfare Price Index — Live",
+    page_icon="✈️",
     layout="wide",
+    initial_sidebar_state="collapsed",
+    menu_items={
+        "about": (
+            "APIx — Real-time Airfare Price Index for India (SIH26056, MoSPI). "
+            "Demo runs on simulated fare data; see docs/methodology.md."
+        )
+    },
 )
+
+# Dark aviation theme: CSS custom properties for the page, and a matching
+# Plotly template so charts inherit the same palette instead of restating it.
+st.markdown(theme.inject_theme(), unsafe_allow_html=True)
+theme.register_plotly_theme()
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +90,11 @@ def api_post_scrape(origin: str, dest: str, days_ahead: int) -> dict:
 # Chrome
 # ---------------------------------------------------------------------------
 
-PALETTE = {"apix": "#1f4e79", "reference": "#c0504d", "accent": "#2e7d32"}
+PALETTE = {
+    "apix": theme.PALETTE["accent"],
+    "reference": theme.PALETTE["warn"],
+    "accent": theme.PALETTE["blue"],
+}
 
 
 def simulated_banner(provenance: dict | None = None) -> None:
@@ -164,12 +190,12 @@ def section_trend() -> None:
         annotation_text="base = 100", annotation_position="bottom right",
     )
     fig.update_layout(
-        height=420, template="plotly_white", margin=dict(t=30, b=40),
+        height=420, margin=dict(t=30, b=40),
         xaxis_title="Query date (date the fare was observed)",
         yaxis_title="APIx",
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     lo, hi = df["index_value"].min(), df["index_value"].max()
     st.caption(
@@ -224,9 +250,9 @@ def section_heatmap() -> None:
         aspect="auto",
         labels=dict(x="Query date", y="Route", color="Index"),
     )
-    fig.update_layout(height=420, template="plotly_white", margin=dict(t=30, b=40))
+    fig.update_layout(height=420, margin=dict(t=30, b=40))
     fig.update_xaxes(tickangle=-45)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     latest = matrix.iloc[:, -1].sort_values(ascending=False)
     st.caption(
@@ -258,11 +284,11 @@ def section_elasticity() -> None:
         hovertemplate="%{y}<br>%{x:.3f}%% per day<extra></extra>",
     ))
     fig.update_layout(
-        height=420, template="plotly_white", margin=dict(t=30, b=40, r=80),
+        height=420, margin=dict(t=30, b=40, r=80),
         xaxis_title="% fare rise per day closer to departure",
         yaxis_title="",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     with st.expander("Fit detail"):
         st.dataframe(
@@ -313,12 +339,12 @@ def section_backtest(backtest: dict | None) -> None:
         line=dict(color=PALETTE["reference"], width=2, dash="dash"),
     ))
     fig.update_layout(
-        height=420, template="plotly_white", margin=dict(t=30, b=40),
+        height=420, margin=dict(t=30, b=40),
         xaxis_title="Query date", yaxis_title="Index (first common date = 100)",
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     st.info(
         f"**The gap is the point.** APIx moves "
