@@ -296,18 +296,59 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 5 — Index construction
 
-- [ ] `/index/apix.py`: implement a Laspeyres-style fixed-basket weighted index:
+- [x] `/index/apix.py`: implement a Laspeyres-style fixed-basket weighted index:
   - fixed base period (first available date) = 100
   - weights = route traffic share × airline market share × advance-purchase-bucket weight
   - aggregate to daily, weekly, monthly APIx
-- [ ] Compute route-level sub-indices (APIx per city-pair)
-- [ ] Compute lead-time elasticity: % fare change per day as advance_purchase_days decreases,
+      - `APIx_t = 100 * sum_i w_i * (P_it / P_i0)` over **192 basket cells**
+        (8 routes × 4 airlines × 6 booking windows). Weights asserted to sum to 1.0 at load.
+      - Base = first available query_date (2026-08-07) = 100.00 exactly. Bucket weights added
+        to `config/index.yaml`, flagged in-file as modelling assumptions (lead-time booking
+        distributions are not published at this granularity).
+      - Missing cells: weight is **redistributed** across observed cells, not treated as a
+        zero price — the latter would drag the index down when seats sold out, the opposite
+        of what happens to prices. Each day carries a `coverage` figure; <60% is flagged.
+      - Cells with no base-period price are dropped (no P_i0 = no relative). Currently 0
+        dropped, 100% coverage on every day.
+      - Weekly/monthly = mean of the daily series; partial periods dropped. Recomputing from
+        pooled cells would mix days with different availability and break comparability.
+      - **Result: 100.00 at base, rising to 109.68 by 2026-09-10** as the October festival
+        dates enter the 45-day booking window. 35 daily / 5 weekly / 1 monthly points.
+- [x] Compute route-level sub-indices (APIx per city-pair)
+      - Same formula per route; the route weight cancels, leaving airline × bucket
+        renormalised. All 8 routes, 280 rows in `apix_route_index`.
+- [x] Compute lead-time elasticity: % fare change per day as advance_purchase_days decreases,
       per route
-- [ ] Write `/docs/methodology.md`: the formula, the weighting scheme and why, base period
+      - Log-linear fit (fare rises compound, so a rupees-vs-days line would under-read short
+        lead times), reported as `exp(-slope) - 1`.
+      - **Correctness fix found during verification.** Pooled OLS is biased here: in a rolling
+        panel a 45-day quote is by construction a quote for a departure six weeks out, and
+        some of those are festival dates — so the fit credits part of the *festival* premium
+        to *long lead times* and flattens the curve. Measured: **1.11%/day pooled vs
+        1.57%/day** with travel-date fixed effects, R² 0.28 vs 0.51. A ~30% understatement.
+        Now demeans ln(fare) and apd within each travel_date before fitting, so the slope
+        comes only from comparing the *same* departure at different lead times.
+      - Results: **1.53–1.59 %/day** across the 8 routes, R² ≈ 0.51. Test
+        `test_elasticity_recovers_a_known_rate` builds fares that rise exactly 2%/day and
+        confirms the estimator returns 2.000%.
+- [x] Write `/docs/methodology.md`: the formula, the weighting scheme and why, base period
       choice, and known limitations (must be defensible in a live Q&A)
-- [ ] Test: confirm index = 100 at base period, confirm it moves sensibly under a synthetic
+      - Written for a non-technical reader: what the index measures and why a naive average
+        is wrong, the formula, all three weight tables, why the basket is stratified by
+        booking window, missing-cell handling, the elasticity estimator with the pooled-vs-
+        fixed-effects comparison, and an explicit simulated-vs-real section.
+      - 8 known limitations stated openly, including the single-day base period propagating
+        that day's noise through the whole series (the spec's choice; the knob is exposed).
+- [x] Test: confirm index = 100 at base period, confirm it moves sensibly under a synthetic
       demand shock
-- [ ] Commit: "Phase 5: index construction + methodology doc"
+      - Both named checks pass, plus exact-value tests: a uniform +10% gives exactly 110.00,
+        −20% gives 80.00, and a 2.5× one-day shock gives exactly 250.00 with neighbouring
+        days unmoved at 100.00.
+      - `test_index_ignores_a_shift_in_observation_mix` is the one that proves the design:
+        flooding the sample with cheap short-haul rows drops a naive average but leaves APIx
+        at exactly 100.00 — fixed weights doing their job.
+      - `tests/test_apix.py`: 27 tests. Full suite **125 passing**.
+- [x] Commit: "Phase 5: index construction + methodology doc"
 
 ---
 
