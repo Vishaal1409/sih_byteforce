@@ -497,15 +497,45 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 9 — Docs for the pitch
 
-- [ ] `docs/architecture.md` — data flow diagram (mermaid), and an honest explanation of the
+- [x] `docs/architecture.md` — data flow diagram (mermaid), and an honest explanation of the
       simulator/real-scraper split
-- [ ] `docs/anti-bot-strategy.md` — one page covering: JS-rendered pages (Playwright), CAPTCHA
+      - Two mermaid diagrams: a full data-flow `flowchart` (collection → schema → ETL → index
+        → API → dashboard, with config feeding every stage, simulated nodes red and real nodes
+        green) and a `sequenceDiagram` of exactly what happens when a scrape is blocked.
+      - **Both diagrams validated by rendering them with the real mermaid library** in a
+        headless browser, not eyeballed. One fix needed: `{...}` braces inside node text
+        break the parser even when quoted.
+      - Simulated/real split given as an explicit table, plus the two honest reasons the demo
+        is not on live data (the index needs a 50,400-observation panel, and every accessible
+        target blocks automated access) and a section on where real data plugs in.
+- [x] `docs/anti-bot-strategy.md` — one page covering: JS-rendered pages (Playwright), CAPTCHA
       (why not bypassed — ToS/legal risk — fallback strategy instead), IP rotation (flagged as
       a future scaling consideration, not implemented), robots.txt compliance. This is the
       section most likely to be probed — be precise, not hand-wavy.
-- [ ] `README.md` at repo root: one-command setup/run instructions, "what's simulated vs real"
+      - Leads with a summary table of every defence and whether we implemented a response.
+      - **Precise, with measured evidence rather than assertions**: the robots.txt results
+        table names which paths were allowed and which disallowed (Kayak and Cleartrip
+        disallow their search paths, so they were not scraped); the CAPTCHA section reports
+        the actual observed responses (Skyscanner HTTP 200 + 312-char challenge UUID, Ixigo
+        403, Goibibo HTTP/2 error).
+      - Lists explicitly what we do NOT do: no CAPTCHA solving, no `navigator.webdriver`
+        patching, no stealth plugins, no fingerprint spoofing, no harvested session cookies.
+      - IP rotation section distinguishes legitimate geographic distribution from
+        rotation-to-evade with a comparison table, and gives the real production path
+        (commercial API / GDS agreements, or MoSPI statutory returns — which actually fits
+        the problem statement better than scraping ever could).
+      - Ends with an honest assessment of what the module does and does not prove, and a
+        table mapping each concern to the function that implements it.
+- [x] `README.md` at repo root: one-command setup/run instructions, "what's simulated vs real"
       section near the top, links to the two docs above
-- [ ] Commit: "Phase 9: docs"
+      - "What's simulated vs. real" is the **first section after the title**, before setup —
+        including the three-value `source` table and how a reader can verify provenance
+        themselves at any point.
+      - One-command quick start (`python run.py`) with the manual per-stage commands in a
+        collapsed section, current results table, and the composition-effect finding
+        (+9.68% vs +14.86%) called out as the headline result.
+      - Links to methodology, architecture and anti-bot docs; known limitations restated.
+- [x] Commit: "Phase 9: docs"
 
 ---
 
