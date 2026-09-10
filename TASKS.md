@@ -166,17 +166,66 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 3 — Real scraper module (small, honest, non-blocking)
 
-- [ ] Pick ONE real, accessible target (a single airline search page or metasearch site).
+- [x] Pick ONE real, accessible target (a single airline search page or metasearch site).
       Check its `robots.txt` first — if scraping is disallowed, document that and skip to the
       fallback-only version of this phase.
-- [ ] Build `/scraper/live_scraper.py` using Playwright (headless), matching the Phase 1 schema
+      - **Target: Skyscanner India**, `/transport/flights/{o}/{d}/{yymmdd}/`. Chosen because
+        robots.txt permits that path.
+      - robots.txt checked live on 2026-09-10 with `urllib.robotparser` across 10 candidates.
+        Results recorded in `config/scraper.yaml`: Skyscanner route pages ALLOWED (but
+        `/prices-calendar/` DISALLOWED, so unused); **Kayak `/flights/` DISALLOWED**;
+        **Cleartrip `/flights/search*` DISALLOWED**; Goibibo and Ixigo allowed.
+        Kayak and Cleartrip are therefore not scraped.
+      - The scraper re-checks robots.txt at runtime before every fetch, not just at build
+        time — permission can be withdrawn. It fails CLOSED: an unreachable robots.txt is
+        treated as "no", not as permission.
+- [x] Build `/scraper/live_scraper.py` using Playwright (headless), matching the Phase 1 schema
       exactly (`source = 'live'`)
-- [ ] Add rate-limiting (min delay between requests) and retry/backoff on failure
-- [ ] Add graceful fallback: if blocked/CAPTCHA'd/timeout, log it and return a simulator-backed
+      - Emits `db.FareQuote` with `source='live'`, so scraped rows are schema-identical to
+        simulated ones and nothing downstream needs to care which it got.
+      - Installed the Chromium binary for this phase (deferred from Phase 0 as planned).
+      - Runs a real, unmodified Chromium: no stealth plugins, no `navigator.webdriver`
+        patching, no fingerprint randomisation, no IP rotation (CLAUDE.md rule 6).
+      - `parse_fares()` is deliberately conservative — it only emits a quote when it can tie
+        a price to a carrier in our basket, and rejects amounts outside Rs.1,000–Rs.100,000
+        so a phone number or mileage figure is never mistaken for a fare. A page it cannot
+        parse yields nothing and falls back, rather than inventing a number and calling it
+        live.
+- [x] Add rate-limiting (min delay between requests) and retry/backoff on failure
+      - 6s minimum gap between requests, enforced process-wide; honours a robots.txt
+        `crawl-delay` if the target ever declares one (takes the larger of the two).
+      - 3 attempts, exponential backoff (2s, 4s), 90s overall deadline per call.
+      - Judgment call: a **block is never retried**. Only transient errors (timeout, network)
+        retry. Retrying a site that has already refused is precisely the hammering rule 6
+        forbids — and it cut the observed failure path from 93s/3 attempts to 6s/1 attempt.
+- [x] Add graceful fallback: if blocked/CAPTCHA'd/timeout, log it and return a simulator-backed
       result tagged `source = 'fallback_simulated'` so the caller never just gets an error
-- [ ] Test: run it live for one route, confirm either a real result or a clean fallback — no
+      - Never raises. Every failure path returns a `ScrapeResult` with `is_real=False` and a
+        plain-English `reason`. Test-enforced across RuntimeError/ValueError/OSError/MemoryError.
+      - Fallback rows are tagged `fallback_simulated`, distinct from ordinary `simulated`, so
+        "the scraper was blocked and we substituted" stays visible in the data permanently
+        rather than blending into the Phase 2 backfill.
+      - `ScrapeResult.headline` is a ready-to-display string that says outright
+        "these are NOT real quotes" on the fallback path — Phase 8's dashboard shows it verbatim.
+- [x] Test: run it live for one route, confirm either a real result or a clean fallback — no
       unhandled exceptions
-- [ ] Commit: "Phase 3: real scraper with fallback"
+      - **Ran live. Result: clean fallback, no unhandled exceptions.** DEL-BOM and BLR-MAA,
+        `--store` verified: 4 rows landed tagged `fallback_simulated`, `db.py info` shows
+        50,400 simulated + 4 fallback_simulated, both marked "<- NOT REAL DATA".
+      - **Finding — every accessible target blocks automated access** (probed 2026-09-10):
+        - Skyscanner: HTTP **200** but a **312-character body containing only a challenge
+          UUID** — a refusal dressed as a success, with no fare content at all.
+        - Ixigo: HTTP **403** "Oops...too many requests!"
+        - Goibibo: `ERR_HTTP2_PROTOCOL_ERROR`.
+      - This drove a real fix: the 312-char interstitial matched none of the CAPTCHA-phrase
+        indicators, so the scraper read it as "parsed nothing" and retried 3x. Added a
+        `min_content_chars` check — a page too short to be a search result is now classified
+        as a block and not retried. Evidence is captured for `docs/anti-bot-strategy.md`.
+      - No attempt was made to solve the challenge, and none will be (CLAUDE.md rule 6).
+        Being blocked is the honest outcome and the fallback is what the phase is for.
+      - `tests/test_live_scraper.py`: 22 tests, fully offline (network stubbed) so they are
+        deterministic and do not hammer the target. Full suite **74 passing**.
+- [x] Commit: "Phase 3: real scraper with fallback"
 - Note: this module exists to *prove capability*, not to power the main demo. Keep it isolated
   so nothing else depends on it succeeding.
 

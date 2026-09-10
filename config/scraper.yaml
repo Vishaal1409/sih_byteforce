@@ -1,0 +1,82 @@
+# config/scraper.yaml — settings for the Phase 3 live scraper
+#
+# ONE target, deliberately. This module exists to prove the real-collection path
+# works end to end, not to power the demo (the demo runs on the Phase 2
+# simulator). Keeping it to a single well-understood target keeps it honest and
+# keeps the blast radius small.
+#
+# TARGET SELECTION AND robots.txt
+# --------------------------------
+# Checked on 2026-09-10 with urllib.robotparser against each site's live
+# robots.txt, user-agent "*":
+#
+#   Skyscanner  /transport/flights/{o}/{d}/{yymmdd}/   ALLOWED   <- chosen
+#   Skyscanner  /prices-calendar/...                   DISALLOWED (not used)
+#   Cleartrip   /flights/search*                       DISALLOWED
+#   Kayak       /flights/...                           DISALLOWED
+#   Goibibo     /flights/air-DEL-BOM/                  allowed
+#   Ixigo       /search/result/flight                  allowed
+#
+# Kayak and Cleartrip's search paths are disallowed, so they are not scraped --
+# see docs/anti-bot-strategy.md. The scraper re-checks robots.txt at runtime
+# before every fetch and refuses to proceed if the rule has changed; it is not
+# enough to have checked once at build time.
+
+target:
+  name: "Skyscanner India"
+  base_url: "https://www.skyscanner.co.in"
+  robots_url: "https://www.skyscanner.co.in/robots.txt"
+  # {origin}/{dest} lowercase IATA, {yymmdd} travel date.
+  url_template: "https://www.skyscanner.co.in/transport/flights/{origin}/{dest}/{yymmdd}/"
+
+# Identifier used for the robots.txt lookup. We check robots as ourselves rather
+# than as "*" so the check is honest about who is asking.
+robots_user_agent: "APIx-SIH26056-prototype"
+
+politeness:
+  # Minimum seconds between requests to the target, enforced process-wide.
+  min_delay_seconds: 6.0
+  # Nothing in robots.txt declares a crawl-delay; if one appears, the larger of
+  # it and min_delay_seconds is used.
+  respect_crawl_delay: true
+
+retry:
+  max_attempts: 3
+  initial_backoff_seconds: 2.0
+  backoff_multiplier: 2.0
+  # Total wall-clock ceiling for one scrape_route() call, fallback included.
+  overall_deadline_seconds: 90.0
+
+browser:
+  headless: true
+  page_timeout_seconds: 30.0
+  # Viewport of an ordinary laptop. We do NOT install stealth plugins, patch
+  # navigator.webdriver, randomise fingerprints, or rotate IPs -- see
+  # docs/anti-bot-strategy.md. Playwright's Chromium is a real Chromium and is
+  # presented as such.
+  viewport_width: 1366
+  viewport_height: 768
+  locale: "en-IN"
+
+# A rendered page shorter than this is an interstitial, not content. Observed
+# 2026-09-10: Skyscanner answers HTTP 200 with a ~312-character body containing
+# only a challenge UUID, and no fare data at all. That is a block, and treating
+# it as one matters -- otherwise the scraper reads it as "parsed nothing",
+# retries three times with backoff, and hammers a site that has already said no.
+min_content_chars: 2000
+
+# Strings that indicate we have been blocked or challenged rather than served a
+# page. Matched case-insensitively against the rendered text. On a match the
+# scraper stops, logs the block, and falls back -- it never tries to solve or
+# circumvent a challenge.
+block_indicators:
+  - "captcha"
+  - "are you a robot"
+  - "unusual traffic"
+  - "access denied"
+  - "forbidden"
+  - "rate limit"
+  - "too many requests"
+  - "verify you are human"
+  - "press and hold"
+  - "cf-challenge"
