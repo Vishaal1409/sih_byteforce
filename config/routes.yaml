@@ -15,6 +15,10 @@
 # DGCA month is a one-file change -- that is the point of keeping them here.
 #
 # traffic_weight values are normalised to sum to 1.0 across the basket.
+#
+# distance_km / base_fare_inr are MODELLING INPUTS for the Phase 2 simulator, not DGCA
+# figures: approximate great-circle distance and a plausible far-out economy base fare
+# (in INR, excluding taxes) for each sector. They do not affect index weighting.
 
 basket_version: "0.1"
 weights_normalised: true
@@ -23,39 +27,55 @@ routes:
   - origin: DEL
     dest: BOM
     name: "Delhi - Mumbai"
+    distance_km: 1150
+    base_fare_inr: 3800
     traffic_weight: 0.19
 
   - origin: DEL
     dest: BLR
     name: "Delhi - Bengaluru"
+    distance_km: 1740
+    base_fare_inr: 4600
     traffic_weight: 0.16
 
   - origin: BOM
     dest: BLR
     name: "Mumbai - Bengaluru"
+    distance_km: 840
+    base_fare_inr: 3200
     traffic_weight: 0.13
 
   - origin: DEL
     dest: CCU
     name: "Delhi - Kolkata"
+    distance_km: 1300
+    base_fare_inr: 4000
     traffic_weight: 0.12
 
   - origin: DEL
     dest: HYD
     name: "Delhi - Hyderabad"
+    distance_km: 1250
+    base_fare_inr: 3900
     traffic_weight: 0.11
 
   - origin: DEL
     dest: MAA
     name: "Delhi - Chennai"
+    distance_km: 1760
+    base_fare_inr: 4700
     traffic_weight: 0.10
 
   - origin: BOM
     dest: MAA
     name: "Mumbai - Chennai"
+    distance_km: 1030
+    base_fare_inr: 3500
     traffic_weight: 0.10
 
   - origin: BLR
     dest: MAA
     name: "Bengaluru - Chennai"
+    distance_km: 290
+    base_fare_inr: 2400
     traffic_weight: 0.09

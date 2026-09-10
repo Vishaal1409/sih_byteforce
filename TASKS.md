@@ -103,19 +103,64 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 2 — Fare simulator (primary data source for the demo)
 
-- [ ] Build `/scraper/simulator.py`: generates plausible fare quotes per
+- [x] Build `/scraper/simulator.py`: generates plausible fare quotes per
       (airline, route, travel_date, advance_purchase_days) with:
   - base fare that rises non-linearly as advance_purchase_days decreases (booking-window curve)
   - taxes/fees as a semi-fixed component + route-dependent surcharge
   - per-airline fare offset (budget vs. full-service pricing gap)
   - random "sold out" / no-fare days at low frequency
   - configurable demand-shock dates (festivals, long weekends) that spike fares 150–300%
-- [ ] Generate a backfilled dataset: last 30+ days of query_dates × 45 advance-purchase windows
+      - All five behaviours implemented. Curve is `1 + amplitude * exp(-apd / decay)`;
+        taxes are fixed airport charges + distance-scaled surcharge + 5% GST on base;
+        carrier offset is carrier_type x per-brand factor; sold-out probability rises
+        exponentially as departure nears; shocks are date windows with a multiplier range.
+      - All model parameters live in the new `config/simulator.yaml` (CLAUDE.md: config in
+        `/config`, one file to point at when asked "why these numbers"). Added
+        `distance_km` / `base_fare_inr` to `config/routes.yaml` as route properties, flagged
+        in-file as modelling inputs, not DGCA figures.
+      - Judgment call: added `config_loader.py` at repo root (alongside `db.py`) as the single
+        reader for `/config`. Phase 5 needs the same route/airline weights, and it validates
+        that both weight sets sum to 1.0 at load time rather than silently rescaling the index.
+      - Output is deterministic: each quote is seeded from a blake2b hash of
+        (seed, airline, route, travel_date, query_date), so re-running the backfill refreshes
+        rows instead of churning the dataset, and the demo is reproducible.
+      - Bug found and fixed during verification: the shock multiplier was originally drawn
+        per quote, so the same flight jumped randomly between 1.8x and 3.0x across query
+        dates (observed Rs.7,330–Rs.12,977 on one Dussehra departure). A festival is one
+        price event for a sector on a date, so the multiplier is now keyed on
+        (route, travel_date, shock) only — stable across carriers and observations. Locked in
+        by `test_shock_is_coherent_across_airlines_and_query_dates`.
+      - `generate_quote()` refuses to emit `source='live'` (test-enforced); Phase 3 reuses the
+        same model for its `fallback_simulated` path.
+- [x] Generate a backfilled dataset: last 30+ days of query_dates × 45 advance-purchase windows
       × all routes × all airlines, written to `apix.db`
-- [ ] Tag every simulated row with `source = 'simulated'`
-- [ ] Sanity check: plot a couple of routes' fare-vs-advance-purchase curves, confirm they look
+      - **50,400 rows** = 35 query_dates (2026-08-07..2026-09-10) × 45 apd × 8 routes × 4
+        airlines. Verified idempotent: re-running leaves the count at 50,400.
+      - 1,712 rows (3.4%) are sold out / no fare — the "low frequency" the brief asks for.
+      - `scraped_at` is stamped 06:30 UTC on the row's own query_date, not "now": these are
+        backfilled historical observations and dating them today would be a lie.
+- [x] Tag every simulated row with `source = 'simulated'`
+      - Verified: `counts_by_source` returns `{'simulated': 50400}`, nothing else.
+- [x] Sanity check: plot a couple of routes' fare-vs-advance-purchase curves, confirm they look
       like real airfare curves (steep near departure, flatter further out)
-- [ ] Commit: "Phase 2: fare simulator + backfilled dataset"
+      - `python -m scraper.simulator sanity` — prints the curve, asserts its shape, and writes
+        `docs/simulator_curve_check.html` (plotly). **All checks PASS.**
+      - DEL-BOM: Rs.5,304 at 45 days -> Rs.11,173 at 1 day (**2.11x**), slope Rs.24/day far out
+        vs Rs.412/day in the last week. BLR-MAA: 2.07x, Rs.17/day vs Rs.255/day.
+      - All three configured shocks verified to fire at 1.79x / 1.90x / 2.07x vs adjacent
+        non-shock dates.
+      - Judgment call on the check itself: the first version averaged fares at fixed
+        advance_purchase_days across query_dates, which produced a NON-monotone curve. That
+        was an artifact of the check, not the model — at fixed apd, travel_date slides with
+        lead time, so different lead times sweep different numbers of festival windows. The
+        check now holds travel_date fixed and varies query_date (watching one flight approach
+        departure) and excludes shock-window dates, which isolates the booking curve.
+      - Second judgment call: 1-day-resolution monotonicity is asserted against a tolerance
+        derived from the configured noise and actual sample size (3 standard errors), not a
+        magic constant — far from departure the true step (~0.5%/day) is smaller than the
+        sampling error, so a fixed threshold would be testing below the noise floor.
+      - `tests/test_simulator.py`: 25 tests. Full suite now **52 passing**.
+- [x] Commit: "Phase 2: fare simulator + backfilled dataset"
 
 ---
 
