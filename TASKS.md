@@ -407,14 +407,42 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 7 — API
 
-- [ ] `/api/main.py` (FastAPI):
+- [x] `/api/main.py` (FastAPI):
   - `GET /index` — current + historical APIx (daily/weekly/monthly)
   - `GET /index/route/{origin}/{dest}` — route sub-index
   - `GET /index/elasticity` — lead-time elasticity data
   - `GET /backtest/results` — correlation, MAPE, series for overlay
   - `POST /scrape/live` — triggers Phase 3 scraper for a given route (used by dashboard button)
-- [ ] Confirm `/docs` (OpenAPI/Swagger) renders and all endpoints return valid JSON
-- [ ] Commit: "Phase 7: API"
+      - All five implemented. Thin by design: Phases 5–6 persist their results, so the API
+        reads tables. That keeps it fast and means the API can never disagree with the
+        dashboard about what the index says.
+      - **Every response carries a required `provenance` block** (`is_real_data`,
+        `row_counts_by_source`, a display-ready `warning`). It is a required field on every
+        response model, not optional — a caller cannot receive APIx numbers without also
+        receiving the caveat. Test asserts it appears in each model's OpenAPI `required` list.
+      - `GET /index` also returns the Phase 4 data-quality summary, so the dashboard gets it
+        without a new endpoint. Stayed with exactly the five specified endpoints.
+      - `POST /scrape/live` is a sync `def`, so FastAPI runs it in a worker thread — the
+        scraper blocks for several seconds. It returns HTTP 200 with `is_real=false` on a
+        block rather than an error: being blocked is an expected outcome, not a server fault.
+      - Before the pipeline is built, endpoints return **503 with the exact commands to run**
+        rather than a stack trace.
+- [x] Confirm `/docs` (OpenAPI/Swagger) renders and all endpoints return valid JSON
+      - **Verified against a running uvicorn server**, not just TestClient:
+        - `/docs` → 200, Swagger UI renders, title present
+        - `/openapi.json` → 200, all 5 paths
+        - `/index` (daily/weekly/monthly) → 200; base 2026-08-07, current **109.6755**,
+          +9.6755% since base, 35 points
+        - `/index/elasticity` → 200, 8 routes, top DEL-MAA at 1.5894%/day
+        - `/index/route/DEL/BOM`, `/index/route/BLR/MAA` → 200
+        - `/backtest/results` → 200, r=0.9669, MAPE=2.69%, `reference_is_real_data: false`
+        - `POST /scrape/live` → 200 in 7.7s, real network call, `is_real=false`,
+          4 quotes all tagged `fallback_simulated`
+        - error paths: unknown route → **404** (listing the basket), bad period → **422**,
+          bad route on POST → **404**
+      - `tests/test_api.py`: 27 tests, offline (scraper network stubbed). Full suite
+        **172 passing**.
+- [x] Commit: "Phase 7: API"
 
 ---
 
