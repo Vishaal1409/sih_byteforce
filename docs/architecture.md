@@ -7,66 +7,107 @@ data and which do not.
 
 ---
 
-## 1. Data flow
+## 1. System Architecture & Data Pipeline Flowchart
 
 ```mermaid
-flowchart TB
-    subgraph COLLECT["1 · Collection"]
-        direction LR
-        SIM["scraper/simulator.py<br/><b>SIMULATED</b><br/>synthetic fare model"]
-        LIVE["scraper/live_scraper.py<br/><b>REAL</b><br/>Playwright + robots.txt"]
+flowchart TD
+    classDef sim fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    classDef real fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef store fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    classDef process fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#000
+    classDef presentation fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+
+    subgraph Layer1 ["1 · Data Ingestion Layer"]
+        SIM["<b>Fare Simulator</b><br/><code>scraper/simulator.py</code><br/>Non-linear curves + festival shocks"]:::sim
+        LIVE["<b>Live Web Scraper</b><br/><code>scraper/live_scraper.py</code><br/>Playwright headless Chromium"]:::real
+        ROBOTS{"robots.txt Check<br/>& Rate Limiter"}:::real
+        TARGET["Public Route Pages<br/>(Skyscanner India)"]:::real
+        
+        LIVE --> ROBOTS
+        ROBOTS -->|Allowed & Polite| TARGET
+        TARGET -->|Block / Challenge| FALLBACK["Fallback Generator<br/><code>simulated_fallback()</code>"]:::sim
+        FALLBACK -.->|source='fallback_simulated'| SCHEMA
+        TARGET -->|Success| PARSE["Conservative Parser<br/><code>parse_fares()</code>"]:::real
     end
 
-    subgraph CFG["config/ — every weight and threshold"]
+    subgraph ConfigLayer ["Configuration Baskets (config/*.yaml)"]
         direction LR
-        C1["routes.yaml<br/>airlines.yaml"]
-        C2["simulator.yaml<br/>scraper.yaml"]
-        C3["etl.yaml<br/>index.yaml<br/>backtest.yaml"]
+        CFG_R["routes.yaml<br/>(DGCA city-pairs & traffic weights)"]
+        CFG_A["airlines.yaml<br/>(Market shares & carrier types)"]
+        CFG_I["index.yaml<br/>(Advance booking window weights)"]
+        CFG_E["etl.yaml<br/>(Outlier & MAD thresholds)"]
     end
 
-    SCHEMA["<b>One schema for every row</b><br/>db.py · FareQuote<br/>source: simulated / live / fallback_simulated"]
+    subgraph Layer2 ["2 · Raw Storage Tier"]
+        SCHEMA["<b>Canonical FareQuote Schema</b><br/><code>db.py</code><br/>CHECK: simulated / live / fallback_simulated"]:::process
+        RAW[("<b>fare_quotes Table</b><br/><code>data/apix.db</code><br/>50,400 observations")]:::store
+        
+        SIM -->|source='simulated'| SCHEMA
+        PARSE -->|source='live'| SCHEMA
+        SCHEMA --> RAW
+    end
 
-    RAW[("fare_quotes<br/>50,400 rows")]
-    CLEAN[("fares_clean<br/>48,688 rows")]
-    QUAL[("data_quality_log")]
+    subgraph Layer3 ["3 · ETL & Cleaning Pipeline (etl/clean.py)"]
+        DEDUPE["Deduplication<br/>(5-tuple natural key)"]:::process
+        AVAIL["Stockout Filter<br/>(Drop unavailable/sold-out)"]:::process
+        COMPONENT["Component Validation<br/>(Flag base + taxes != total)"]:::process
+        MAD["<b>Peer-Relative Outlier Stripping</b><br/>Modified Z-Score via MAD<br/>(Preserves festival market shocks)"]:::process
+        
+        RAW --> DEDUPE --> AVAIL --> COMPONENT --> MAD
+    end
 
-    ETL["etl/clean.py<br/>dedupe · bounds · peer-ratio outliers"]
-    IDX["index/apix.py<br/>Laspeyres fixed basket"]
-    BT["index/backtest.py<br/>correlation · MAPE"]
+    subgraph Layer4 ["4 · Analytical Store"]
+        CLEAN[("<b>fares_clean Table</b><br/>48,688 cleaned records")]:::store
+        QUAL[("<b>data_quality_log Table</b><br/>Audit metrics per run")]:::store
+        
+        MAD --> CLEAN
+        MAD --> QUAL
+    end
 
-    OUT[("apix_index<br/>apix_route_index<br/>apix_elasticity<br/>apix_backtest")]
+    subgraph Layer5 ["5 · Statistical Index & Modeling Engine"]
+        STRAT["192-Cell Basket Stratification<br/>(8 Routes × 4 Airlines × 6 Lead Buckets)"]:::process
+        LASP["<b>Laspeyres Index Aggregator</b><br/><code>index/apix.py</code><br/>Daily / Weekly / Monthly Series"]:::process
+        ELAST["<b>Fixed-Effects Elasticity</b><br/>De-meaned within travel_date<br/>(~1.57%/day escalation)"]:::process
+        BACKTEST["<b>Backtest Engine</b><br/><code>index/backtest.py</code><br/>vs. Unweighted Reference Mean<br/>(r=0.967, MAPE=2.69%)"]:::process
+        
+        CLEAN --> STRAT
+        STRAT --> LASP
+        STRAT --> ELAST
+        LASP --> BACKTEST
+    end
 
-    API["api/main.py — FastAPI<br/>every response carries <b>provenance</b>"]
-    DASH["dashboard/app.py — Streamlit<br/>persistent SIMULATED banner"]
+    subgraph Layer6 ["6 · Metric Store"]
+        OUT_IDX[("<b>apix_index / apix_route_index</b><br/>Time series indices")]:::store
+        OUT_ELAST[("<b>apix_elasticity</b><br/>Route elasticity rates")]:::store
+        OUT_BT[("<b>apix_backtest</b><br/>Backtest comparison metrics")]:::store
+        
+        LASP --> OUT_IDX
+        ELAST --> OUT_ELAST
+        BACKTEST --> OUT_BT
+    end
 
-    SIM --> SCHEMA
-    LIVE -- "blocked → fallback_simulated" --> SIM
-    LIVE --> SCHEMA
-    SCHEMA --> RAW
-    RAW --> ETL
-    ETL --> CLEAN
-    ETL --> QUAL
-    CLEAN --> IDX
-    CLEAN --> BT
-    IDX --> OUT
-    BT --> OUT
-    OUT --> API
-    QUAL --> API
-    API --> DASH
-    LIVE -. "POST /scrape/live" .-> API
+    subgraph Layer7 ["7 · API & Presentation Tier"]
+        API["<b>FastAPI REST Server</b><br/><code>api/main.py</code><br/>OpenAPI docs & provenance headers"]:::presentation
+        DASH["<b>Streamlit Visualizer</b><br/><code>dashboard/app.py</code><br/>5-Panel Dashboard + Simulated Banner"]:::presentation
+        
+        OUT_IDX --> API
+        OUT_ELAST --> API
+        OUT_BT --> API
+        QUAL --> API
+        
+        OUT_IDX --> DASH
+        OUT_ELAST --> DASH
+        OUT_BT --> DASH
+        CLEAN --> DASH
+        
+        DASH -.->|"Live Scrape Button (POST /scrape/live)"| API
+        API -.->|"Triggers Headless Chromium"| LIVE
+    end
 
-    CFG -.-> SIM
-    CFG -.-> LIVE
-    CFG -.-> ETL
-    CFG -.-> IDX
-    CFG -.-> BT
-
-    classDef sim fill:#ffe6e6,stroke:#c00,color:#000
-    classDef real fill:#e6f4ea,stroke:#2e7d32,color:#000
-    classDef store fill:#eef2f7,stroke:#4a6fa5,color:#000
-    class SIM sim
-    class LIVE real
-    class RAW,CLEAN,QUAL,OUT store
+    ConfigLayer -.-> SIM
+    ConfigLayer -.-> ROBOTS
+    ConfigLayer -.-> MAD
+    ConfigLayer -.-> STRAT
 ```
 
 **The single most important thing in that diagram** is the `source` column on
