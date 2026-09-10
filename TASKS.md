@@ -354,14 +354,54 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 6 — Backtest / validation
 
-- [ ] Obtain or synthesize a DGCA-style reference average-fare series. If real DGCA data isn't
+- [x] Obtain or synthesize a DGCA-style reference average-fare series. If real DGCA data isn't
       fetchable in time, generate a plausible reference series correlated with your simulator's
       demand shocks, and label it clearly as a stand-in with a note on where real DGCA data
       would plug in
-- [ ] `/index/backtest.py`: compare APIx to reference over 30+ days — correlation, MAPE
-- [ ] Produce an overlay chart (APIx vs reference) and save backtest results to DB/JSON for the
+      - **Real DGCA data attempted first.** dgca.gov.in and civilaviation.gov.in both return
+        HTTP 200 but serve a JavaScript shell with no machine-readable fare series;
+        data.gov.in's catalogue API returns HTTP 400 without a registered key.
+      - The blocking issue is **granularity, not access**: DGCA publishes *monthly* PDF
+        aggregates, APIx here is a *daily* series over 35 days. No real DGCA daily
+        average-fare series exists to validate against, so no amount of scraping produces
+        one. Recorded in `config/backtest.yaml`.
+      - Stand-in built and labelled `"DGCA-style reference (SYNTHETIC STAND-IN - not real
+        DGCA data)"`, with `is_real_data: false` carried through the DB, the JSON and the
+        chart title. A test asserts that flag can never quietly flip.
+      - Judgment call on construction: the reference is deliberately **not** APIx-with-noise
+        (which would give a meaningless ~1.0 correlation). It is an **unweighted market
+        mean** — how a simple published average fare is actually computed — plus
+        measurement noise and 3-day smoothing. A test enforces that it stays a genuinely
+        different estimator.
+      - Where real data plugs in: replace `build_reference_series()`; it returns two columns
+        and nothing downstream cares where they came from.
+- [x] `/index/backtest.py`: compare APIx to reference over 30+ days — correlation, MAPE
+      - **35 days. r = 0.9669, Spearman = 0.9336, MAPE = 2.69%**, RMSE 3.48 index points.
+        High but not suspiciously perfect — the final-checklist bar. A test asserts
+        0.70 <= r <= 0.995 and 0.2% <= MAPE <= 15% so a rigged-looking result fails CI.
+      - Refuses to run on fewer than 30 days rather than reporting a thin window.
+      - **The divergence turned out to be the strongest result in the project.** APIx moves
+        +9.68% over the window; the naive average moves +14.86%. Investigated rather than
+        hand-waved: the 31–45 day bucket supplies **34.1% of rows but carries 10% index
+        weight** (3.41x over-represented), and it is the *only* bucket whose travel dates
+        reach the October festivals (**22.8% of its rows**, vs 0% for every bucket inside
+        three weeks). So the naive average reads +36.78% on that bucket alone and −0.16%
+        on the 0–3 day bucket. Most of the "price rise" a simple average reports is
+        composition, not price — which is exactly what the fixed basket removes. Written up
+        as a worked example in `docs/methodology.md` §7a.
+- [x] Produce an overlay chart (APIx vs reference) and save backtest results to DB/JSON for the
       API and dashboard to read
-- [ ] Commit: "Phase 6: backtest"
+      - `docs/backtest_overlay.html` (plotly), with r / MAPE / n and a
+        "BOTH SERIES DERIVED FROM SIMULATED FARE DATA" note in the chart subtitle.
+      - Persisted to `apix_backtest` + `apix_backtest_metrics` tables and
+        `data/backtest_results.json`. `latest_backtest()` reads it back for Phase 7/8.
+      - Bug found and fixed: `run_backtest()` wrote to hardcoded module-level output paths,
+        so running the test suite silently overwrote the real `data/backtest_results.json`
+        with a degenerate flat-fare run (correlation came out `nan`). Output paths are now
+        parameters; tests write to `tmp_path`. Verified the real artifacts survive a full
+        test run.
+      - `tests/test_backtest.py`: 20 tests. Full suite **145 passing**.
+- [x] Commit: "Phase 6: backtest"
 
 ---
 
