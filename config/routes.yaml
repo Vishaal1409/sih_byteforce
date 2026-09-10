@@ -1,0 +1,61 @@
+# config/routes.yaml — the fixed APIx city-pair basket
+#
+# WHY THESE ROUTES: these are the highest-density domestic trunk city-pairs in
+# India and together account for a large share of scheduled domestic passenger
+# traffic. Holding the basket fixed is what makes the index a Laspeyres-style
+# fixed-basket index (see docs/methodology.md, Phase 5).
+#
+# SOURCE OF WEIGHTS: traffic_weight is derived from DGCA monthly domestic traffic
+# reports (city-pair passenger volumes), published at
+# https://www.dgca.gov.in/ -> Statistics -> Monthly Domestic Traffic.
+#
+# HONESTY NOTE: these weights are APPROXIMATE, hand-set to reflect the relative
+# ordering and rough magnitude of DGCA-reported city-pair volumes. They are not
+# lifted verbatim from a single DGCA release. Refreshing them from a specific
+# DGCA month is a one-file change -- that is the point of keeping them here.
+#
+# traffic_weight values are normalised to sum to 1.0 across the basket.
+
+basket_version: "0.1"
+weights_normalised: true
+
+routes:
+  - origin: DEL
+    dest: BOM
+    name: "Delhi - Mumbai"
+    traffic_weight: 0.19
+
+  - origin: DEL
+    dest: BLR
+    name: "Delhi - Bengaluru"
+    traffic_weight: 0.16
+
+  - origin: BOM
+    dest: BLR
+    name: "Mumbai - Bengaluru"
+    traffic_weight: 0.13
+
+  - origin: DEL
+    dest: CCU
+    name: "Delhi - Kolkata"
+    traffic_weight: 0.12
+
+  - origin: DEL
+    dest: HYD
+    name: "Delhi - Hyderabad"
+    traffic_weight: 0.11
+
+  - origin: DEL
+    dest: MAA
+    name: "Delhi - Chennai"
+    traffic_weight: 0.10
+
+  - origin: BOM
+    dest: MAA
+    name: "Mumbai - Chennai"
+    traffic_weight: 0.10
+
+  - origin: BLR
+    dest: MAA
+    name: "Bengaluru - Chennai"
+    traffic_weight: 0.09
