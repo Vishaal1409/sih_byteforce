@@ -448,17 +448,50 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 8 — Dashboard
 
-- [ ] Build dashboard (Streamlit, or React if you're faster there) with:
+- [x] Build dashboard (Streamlit, or React if you're faster there) with:
   1. APIx trend chart, daily/weekly/monthly toggle
   2. Sector/route heatmap (fare index by city-pair)
   3. Lead-time elasticity chart
   4. Backtest overlay chart (APIx vs. reference), with correlation/MAPE shown
   5. "Run live scrape" button → calls `POST /scrape/live` → shows result landing in the data,
      with a visible message if it fell back to simulated data
-- [ ] Add a persistent, visible banner: "Simulated demo data — see methodology.md for the real
+      - All five built in `dashboard/app.py` (Streamlit + plotly).
+      - Judgment call: the dashboard reads **everything through the Phase 7 API**, not the
+        database, so what is on screen is exactly what the API serves and the two can never
+        disagree. If the API is down it shows the command to start it, not blank charts.
+      - **Verified by driving a real browser** (headless Chromium), not just by starting it:
+        all 5 sections present, **4 plotly charts rendered**, 0 Streamlit exceptions, and the
+        real values on screen (APIx 109.68, r=0.967, MAPE 2.69%).
+      - The live-scrape button was **actually clicked** in that browser: returned in 6.5s,
+        rendered "FELL BACK TO SIMULATED DATA — these are NOT real quotes", the block reason,
+        and the 4 written rows with a `Source (provenance)` column showing
+        `fallback_simulated`.
+      - Performance fix found by doing that: the first click took **35.9s**, because the
+        scraper only detected the block after waiting out the full 30s `networkidle` timeout
+        on a 312-char challenge page. It now checks for a block at first paint and returns
+        immediately — **35.9s → 6.5s**, and it stops holding a connection open to a site that
+        has already refused.
+- [x] Add a persistent, visible banner: "Simulated demo data — see methodology.md for the real
       scraper module and data sourcing plan" (or similar) — do not bury this
-- [ ] Polish pass: consistent labels, no debug output visible, loads in one command
-- [ ] Commit: "Phase 8: dashboard"
+      - Full-width dark-red banner directly under the title, on every render, reading
+        "SIMULATED DEMO DATA — NOT REAL AIRLINE FARES" with the live row counts by source and
+        a pointer to `docs/methodology.md`. Test asserts it appears **even when the API is
+        down**, so provenance never depends on a service being reachable.
+      - Reinforced in context: the backtest section carries its own "reference is a synthetic
+        stand-in, not real DGCA data" warning, and the scrape result is colour-coded green
+        for real / red for fallback.
+- [x] Polish pass: consistent labels, no debug output visible, loads in one command
+      - **`python run.py`** — builds the pipeline if absent, starts the API, waits for it to
+        answer, launches the dashboard, and stops both on Ctrl+C. `--rebuild`, `--api-only`
+        and `--no-browser` flags.
+      - Numbered sections with plain-English captions, consistent palette, `use_container_width`
+        throughout, uvicorn at `--log-level warning`, no debug output on the page. Confirmed
+        0 `stException` elements and 0 tracebacks in the rendered DOM.
+      - `tests/test_dashboard.py`: 7 tests via Streamlit's `AppTest`, focused on the
+        API-down path (actionable message, banner still shown, no crash) plus a guard that
+        the dashboard's scrape timeout exceeds the scraper's own deadline so it cannot report
+        a false failure mid-scrape. Full suite **179 passing**.
+- [x] Commit: "Phase 8: dashboard"
 
 ---
 

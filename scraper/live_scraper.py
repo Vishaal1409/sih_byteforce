@@ -278,8 +278,20 @@ def _fetch_page_text(url: str, cfg: dict[str, Any]) -> str:
             page = context.new_page()
             try:
                 page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-                # Fares stream in after first paint; give the network a moment
-                # to settle, but do not fail the scrape if it never fully idles.
+
+                # If the first paint is already a challenge page, stop here.
+                # Waiting for network idle on a 312-character interstitial just
+                # burns the full timeout for a page that will never contain
+                # fares — it cost 34s on a dashboard button press instead of 6s,
+                # and it keeps a connection open to a site that already said no.
+                first_paint = page.inner_text("body")
+                if _detect_block(first_paint, cfg) is not None:
+                    log.info("block detected at first paint; not waiting for idle")
+                    return first_paint
+
+                # Otherwise fares stream in after first paint, so give the
+                # network a moment to settle — but do not fail if it never
+                # fully idles, since ad and analytics traffic often prevents it.
                 try:
                     page.wait_for_load_state("networkidle", timeout=timeout_ms)
                 except PWTimeout:
