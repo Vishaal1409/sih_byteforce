@@ -233,16 +233,64 @@ mark it `[!]` and write why, then move to the next non-dependent task rather tha
 
 ## Phase 4 — ETL / cleaning
 
-- [ ] `/etl/clean.py`: outlier stripping (IQR or MAD, threshold in config), split/validate
+- [x] `/etl/clean.py`: outlier stripping (IQR or MAD, threshold in config), split/validate
       base_fare + taxes vs total_fare, drop/flag nulls and unavailable rows, dedupe on
       (source, airline, route, travel_date, query_date)
-- [ ] Output a cleaned table/view (`fares_clean`) in the same DB, or a materialized
+      - Pipeline: dedupe -> drop unavailable -> drop nulls -> bounds check -> flag component
+        mismatch -> strip outliers. All thresholds in `config/etl.yaml`.
+      - Chose **MAD over IQR**: within-group samples are small (~35) and right-skewed, where
+        MAD's breakdown point beats the quartile spread and needs no symmetry assumption.
+      - Component mismatch is **flagged, not dropped** (`fare_mismatch` column) — the Phase 1
+        schema deliberately declined to enforce `base+taxes=total` precisely so this step
+        could surface it as a quality signal. Configurable to drop instead.
+      - **Major bug found and fixed during verification.** The first implementation ran MAD
+        within (route, airline, lead-time) groups on raw fares. It dropped 1,007 rows — and
+        **all 1,007 were festival/long-weekend rows; not one was an ordinary day.** A
+        market-wide 2x spike looks anomalous against its own group's median, so the cleaner
+        was stripping exactly the signal the index exists to measure, which would have made
+        Phase 5's demand-shock test meaningless. No threshold tuning fixes that; it is the
+        wrong comparison.
+        Fix: each fare is first divided by the median fare for the **same departure at the
+        same lead time across all carriers** (`peer_ratio`). A shock lifts every carrier
+        together so the ratio stays ~1.0 and survives; a mis-parse moves one carrier away
+        from its peers and is caught. Verified: 0 shock rows dropped, and injected x10, /8
+        and x6 errors all still caught — including one placed *on* a shock date, proving it
+        separates "expensive because festival" from "wrong".
+      - Two further robustness fixes surfaced by the tests:
+        1. `modified_z_scores` fell back to all-zeros when MAD was exactly 0, going blind
+           when one wild value sat in an otherwise constant group. Now uses the standard
+           Iglewicz-Hoaglin meanAD fallback.
+        2. Added `min_peer_deviation` (0.25): a fare within 25% of its peer median is never
+           dropped regardless of z-score. In tightly-clustered groups MAD tends to zero and
+           the modified z explodes, so ordinary +/-3% variation was scoring 30+. A row must
+           now be both statistically extreme AND materially unlike its peers.
+- [x] Output a cleaned table/view (`fares_clean`) in the same DB, or a materialized
       pandas-friendly table
-- [ ] Log a data-quality summary (rows in, rows dropped, reasons) — this is useful evaluator
+      - Materialised **table** (not a view): the index math scans it repeatedly and the
+        outlier step is not reasonably expressible in SQL. Rebuilt on each run.
+      - **48,692 rows** from 50,404 in (96.6% retained). `db.query_fares(table='fares_clean')`
+        works against it — the Phase 1 whitelist paying off, no second query function needed.
+- [x] Log a data-quality summary (rows in, rows dropped, reasons) — this is useful evaluator
       material, keep it
-- [ ] Unit test the cleaning functions with a few crafted edge cases (extreme outlier, null
+      - Printed by `python -m etl.clean` and persisted to a `data_quality_log` table as JSON,
+        one row per run, so the API and dashboard can show it. `latest_quality_report()`
+        reads it back.
+      - A test asserts `rows_in == rows_out + total_dropped`, so no row can vanish unaccounted.
+      - Current run: 1,712 dropped (all sold-out / no-fare), 0 outliers, 0 component
+        mismatches on simulated data.
+- [x] Unit test the cleaning functions with a few crafted edge cases (extreme outlier, null
       fare, negative fare, sold-out row)
-- [ ] Commit: "Phase 4: ETL cleaning"
+      - `tests/test_clean.py`: 24 tests covering all four named cases plus dedupe (and that
+        `source` being part of the key keeps a fallback row distinct), shock-preservation,
+        error-on-a-shock-date, the zero-MAD fallback, small-group exemption, config-driven
+        drop-on-mismatch, empty input, and persistence/re-run behaviour.
+      - Note: my first test fixtures were wrong, not the cleaner — rows sharing a natural key
+        were being deduped before reaching the step under test, and the panel varied lead
+        time independently of the dates, which cannot happen in real data since
+        `apd = travel_date - query_date`. Fixtures now derive travel_date from
+        query_date + apd.
+      - Full suite: **98 passing**.
+- [x] Commit: "Phase 4: ETL cleaning"
 
 ---
 

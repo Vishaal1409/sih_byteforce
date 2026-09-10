@@ -1,0 +1,97 @@
+# config/etl.yaml — cleaning thresholds for the Phase 4 ETL
+#
+# Every threshold the cleaner uses lives here rather than in the code, so the
+# question "why did you drop that row?" has a single file as its answer.
+
+etl_version: "0.1"
+
+dedupe:
+  # The natural key for a fare observation, per TASKS.md Phase 4. Where the same
+  # key appears twice, the most recently scraped row wins.
+  key:
+    - source
+    - airline
+    - origin
+    - dest
+    - travel_date
+    - query_date
+  keep: "latest_scraped_at"
+
+fare_validation:
+  # A quote must have a positive total fare to be usable.
+  min_total_fare_inr: 500
+  # Above this, treat as a parsing error rather than a real domestic economy
+  # fare. Generous on purpose -- a genuine last-minute festival fare can be
+  # very high, and clipping real volatility would understate the index.
+  max_total_fare_inr: 150000
+
+  # base_fare + taxes should equal total_fare. Rows breaking the identity are
+  # FLAGGED, not dropped: real scraped fares break it routinely (surcharges,
+  # rounding, bundled fees) and that is a data-quality signal worth surfacing,
+  # not a reason to discard an otherwise good observation.
+  components_tolerance_inr: 1.0
+  drop_on_component_mismatch: false
+
+outliers:
+  # MAD (median absolute deviation) rather than IQR. Fare distributions within a
+  # group are right-skewed and small (~35 observations); MAD's breakdown point
+  # is far better than the quartile spread at that size, and it does not assume
+  # symmetry.
+  method: "mad"
+
+  # PEER NORMALISATION -- the important part.
+  #
+  # Testing raw fares directly does not work. Measured on the Phase 2 panel,
+  # a MAD test within (route, airline, lead-time) groups dropped 1,007 rows and
+  # ALL 1,007 of them were festival/long-weekend rows: zero ordinary days. A
+  # market-wide 2x spike looks like an anomaly against that group's own median,
+  # so the cleaner was stripping exactly the signal the index exists to measure.
+  # No threshold fixes that -- it is the wrong comparison.
+  #
+  # So each fare is first divided by the median fare for the SAME departure at
+  # the SAME lead time across all carriers. A genuine demand shock lifts every
+  # carrier together, so the ratio stays near 1.0 and survives. A mis-parse,
+  # currency slip or order-of-magnitude error moves one carrier away from its
+  # peers, so the ratio is extreme and gets caught. That is what an outlier
+  # actually is here: a row inconsistent with its peers, not a row that is
+  # merely expensive.
+  peer_normalise: true
+  peer_group_by:
+    - origin
+    - dest
+    - travel_date
+    - advance_purchase_days
+
+  # The MAD test then runs on those peer ratios, within (route, airline).
+  group_by:
+    - origin
+    - dest
+    - airline
+
+  # Modified z-score threshold on the peer ratio: 0.6745 * |x - median| / MAD.
+  mad_threshold: 8.0
+
+  # Absolute floor, applied AND-wise with the z-score above: a fare within this
+  # fraction of its peer median is never dropped, however extreme its z-score.
+  #
+  # This guards against a pathology in any MAD-based test. If a group's fares
+  # are tightly clustered, MAD collapses towards zero and the modified z-score
+  # explodes, so perfectly ordinary +/-3% variation scores 30+ and gets binned.
+  # Requiring a *material* disagreement with peers as well means we only ever
+  # discard a fare that is both statistically extreme for its group and
+  # genuinely unlike what other carriers charged for the same flight.
+  #
+  # 0.25 = a fare must be at least 25% away from its peer median to qualify.
+  # Mis-parses (order-of-magnitude slips, currency errors) clear this easily;
+  # real market variation does not.
+  min_peer_deviation: 0.25
+
+  # Groups smaller than this are left alone: MAD is not meaningful on a handful
+  # of points and would drop legitimate data.
+  min_group_size: 10
+
+availability:
+  # Sold-out / no-fare rows carry no price, so they cannot enter a price index.
+  # They are excluded from fares_clean but COUNTED in the data-quality summary --
+  # a rising sold-out rate is itself informative about demand.
+  exclude_unavailable: true
