@@ -194,20 +194,35 @@ def section_trend() -> None:
         return
 
     fig = go.Figure()
+    # Soft wash beneath the line, anchored at the base level rather than zero
+    # so the fill reads as "distance from base", which is what the index means.
+    fig.add_trace(go.Scatter(
+        x=df["period"], y=df["index_value"],
+        mode="lines", line=dict(width=0), fill="tozeroy",
+        fillcolor="rgba(34,211,238,.10)",
+        hoverinfo="skip", showlegend=False,
+    ))
     fig.add_trace(go.Scatter(
         x=df["period"], y=df["index_value"], mode="lines+markers",
-        name="APIx", line=dict(color=PALETTE["apix"], width=2.5),
-        hovertemplate="%{x}<br>APIx %{y:.2f}<extra></extra>",
+        name="APIx",
+        line=dict(color=PALETTE["apix"], width=2.6, shape="spline", smoothing=0.4),
+        marker=dict(size=5, color=PALETTE["apix"],
+                    line=dict(width=1.5, color="rgba(7,14,28,.9)")),
+        hovertemplate="<b>%{x}</b><br>APIx <b>%{y:.2f}</b><extra></extra>",
     ))
     fig.add_hline(
         y=100, line_dash="dot", line_color="#999",
         annotation_text="base = 100", annotation_position="bottom right",
     )
+    lo_y, hi_y = float(df["index_value"].min()), float(df["index_value"].max())
+    pad = max(0.6, (hi_y - lo_y) * 0.18)
     fig.update_layout(
-        height=420, margin=dict(t=30, b=40),
+        height=430, margin=dict(t=30, b=64),
         xaxis_title="Query date (date the fare was observed)",
         yaxis_title="APIx",
+        yaxis=dict(range=[min(lo_y, 100) - pad, hi_y + pad]),
         showlegend=False,
+        hovermode="x unified",
     )
     st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
@@ -232,7 +247,9 @@ def route_matrix() -> pd.DataFrame:
         sub = pd.DataFrame(d["series"])
         if sub.empty:
             continue
-        sub["route"] = f"{route.key}  ({route.name})"
+        # Code only: the full name does not fit the axis and was being cut
+        # mid-word ("yderabad)"). It is still shown wherever routes are picked.
+        sub["route"] = route.key
         frames.append(sub[["route", "period", "index_value"]])
 
     if not frames:
@@ -258,12 +275,24 @@ def section_heatmap() -> None:
 
     fig = px.imshow(
         matrix,
-        color_continuous_scale="RdYlGn_r",
+        color_continuous_scale=theme.HEAT_SCALE,
         origin="lower",
         aspect="auto",
         labels=dict(x="Query date", y="Route", color="Index"),
     )
-    fig.update_layout(height=420, margin=dict(t=30, b=40))
+    fig.update_traces(
+        hovertemplate="<b>%{y}</b><br>%{x}<br>Index <b>%{z:.1f}</b><extra></extra>",
+        xgap=1, ygap=1,
+    )
+    fig.update_layout(
+        # Extra bottom room: the -45deg date ticks eat vertical space and
+        # were pushing the axis title out of the plot area.
+        height=440, margin=dict(t=30, b=92, l=104),
+        coloraxis_colorbar=dict(
+            title="Index", thickness=11, len=0.85,
+            outlinewidth=0, ticks="outside", ticklen=3,
+        ),
+    )
     fig.update_xaxes(tickangle=-45)
     st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
@@ -290,13 +319,23 @@ def section_elasticity() -> None:
     df = df.sort_values("pct_change_per_day")
     fig = go.Figure(go.Bar(
         x=df["pct_change_per_day"], y=df["route"], orientation="h",
-        marker_color=PALETTE["accent"],
+        marker=dict(
+            color=df["pct_change_per_day"],
+            colorscale=[[0, theme.PALETTE["blue"]], [1, theme.PALETTE["accent"]]],
+            showscale=False,
+            line=dict(width=0),
+        ),
         text=[f"{v:.2f}%/day" for v in df["pct_change_per_day"]],
         textposition="outside",
-        hovertemplate="%{y}<br>%{x:.3f}%% per day<extra></extra>",
+        textfont=dict(color=theme.PALETTE["text_muted"], size=11.5),
+        customdata=df[["r_squared", "n_observations"]],
+        hovertemplate=(
+            "<b>%{y}</b><br>%{x:.3f}%% per day closer to departure"
+            "<br>R² %{customdata[0]:.3f} · n=%{customdata[1]:,}<extra></extra>"
+        ),
     ))
     fig.update_layout(
-        height=420, margin=dict(t=30, b=40, r=80),
+        height=430, margin=dict(t=30, b=64, r=86),
         xaxis_title="% fare rise per day closer to departure",
         yaxis_title="",
     )
@@ -346,15 +385,21 @@ def section_backtest(backtest: dict | None) -> None:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df["query_date"], y=df["index_value"], mode="lines+markers",
-        name="APIx (weighted index)", line=dict(color=PALETTE["apix"], width=2.5),
+        name="APIx (weighted index)",
+        line=dict(color=PALETTE["apix"], width=2.6, shape="spline", smoothing=0.4),
+        marker=dict(size=4.5),
+        hovertemplate="APIx <b>%{y:.2f}</b><extra></extra>",
     ))
     fig.add_trace(go.Scatter(
         x=df["query_date"], y=df["reference_value"], mode="lines+markers",
         name="Reference (synthetic, unweighted)",
-        line=dict(color=PALETTE["reference"], width=2, dash="dash"),
+        line=dict(color=PALETTE["reference"], width=2, dash="dot",
+                  shape="spline", smoothing=0.4),
+        marker=dict(size=4.5),
+        hovertemplate="Reference <b>%{y:.2f}</b><extra></extra>",
     ))
     fig.update_layout(
-        height=420, margin=dict(t=30, b=40),
+        height=430, margin=dict(t=44, b=64),
         xaxis_title="Query date", yaxis_title="Index (first common date = 100)",
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
