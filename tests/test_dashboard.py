@@ -69,9 +69,10 @@ def test_api_down_message_is_actionable(down_app):
 
 def test_banner_is_shown_even_when_the_api_is_down(down_app):
     """Provenance must never depend on a service being reachable."""
-    text = all_text(down_app)
-    assert "SIMULATED DEMO DATA" in text
-    assert "NOT REAL AIRLINE FARES" in text
+    # Case-insensitive: the markup is sentence case and CSS uppercases it.
+    text = all_text(down_app).lower()
+    assert "simulated demo data" in text
+    assert "not real airline fares" in text
 
 
 def test_hero_renders_instead_of_the_fallback_title(down_app):
@@ -94,12 +95,17 @@ def test_hero_renders_instead_of_the_fallback_title(down_app):
 
 
 def test_banner_names_the_methodology_doc():
-    import dashboard.app as app
+    """The banner lives in components.py now, and must keep its caveat."""
+    from dashboard import components, theme
 
-    import io
-    src = io.open(app.__file__, encoding="utf-8").read()
-    assert "docs/methodology.md" in src
-    assert "SIMULATED DEMO DATA" in src
+    banner = components.provenance_banner({"simulated": 50_400}).lower()
+    assert "simulated demo data" in banner
+    assert "not real airline fares" in banner
+    assert "docs/methodology.md" in banner
+    assert "simulated: 50,400" in banner
+
+    # The visual claim: CSS is what makes the title read as uppercase.
+    assert "text-transform: uppercase" in theme.inject_theme()
 
 
 def test_dashboard_reads_api_base_from_the_environment(monkeypatch):
