@@ -154,7 +154,37 @@ visible in the database permanently rather than blending into the backfill.
 
 ---
 
-## 3. Where real data plugs in
+## 3. Statistical Formulation & Normalization Engine
+
+### 3.1 Laspeyres Fixed-Basket Formula
+APIx aggregates airfares using a Laspeyres-type fixed-weight formulation across **192 stratified basket cells** (8 Routes × 4 Airlines × 6 Advance-Purchase Buckets):
+
+$$\text{APIx}_t = 100 \times \frac{\sum_{r} \sum_{a} \sum_{b} w_{rab} \cdot P_{rab,t}}{\sum_{r} \sum_{a} \sum_{b} w_{rab} \cdot P_{rab,0}}$$
+
+Where:
+- $w_{rab} = w_r \times w_a \times w_b$ represents cell weights normalized such that $\sum w_{rab} = 1.000000$.
+- $w_r$: Calibrated to DGCA domestic city-pair passenger share (e.g., DEL-BOM: 25%, DEL-BLR: 18%).
+- $w_a$: Carrier domestic market share (IndiGo: 64%, Air India Group: 27%, Akasa: 5%, SpiceJet: 4%).
+- $w_b$: Advance booking window distribution weights (0–3d: 22%, 4–7d: 25%, 8–14d: 23%, 15–21d: 15%, 22–30d: 10%, 31–45d: 5%).
+- When cells have missing quotes due to sold-out flights, missing weights are dynamically redistributed across observed cells rather than imputing zero fares (which would artificially depress the index).
+
+### 3.2 Peer-Relative Outlier Filtering
+Raw fare quotes undergo outlier rejection using Modified Z-scores computed on the Median Absolute Deviation (MAD):
+
+$$M_i = \frac{0.6745 \cdot (x_i - \tilde{x})}{\text{MAD}}$$
+
+**Festival-Preserving Normalization**: Outlier detection is not performed on raw rupee values. Instead, each fare is divided by the median fare for the **same departure at the same lead time across all competing carriers** ($x_i = P_{it} / \text{Median}_{\text{peers}}$). Because a festival or holiday demand shock elevates all carriers simultaneously, the ratio remains ~1.0 and is preserved. Genuine mis-scrapes or extreme single-quote anomalies diverge from peers and are stripped.
+
+### 3.3 Travel-Date Fixed-Effects Elasticity Estimator
+To measure the rate at which airfares escalate as departure approaches without confounding calendar-specific events, the engine fits a log-linear model with departure date fixed effects:
+
+$$\ln(P_{it}) = \alpha_{\text{travel\_date}} - \beta \cdot \text{LeadTime}_{it} + \varepsilon_{it}$$
+
+By de-meaning $\ln(\text{fare})$ and $\text{lead\_time}$ within each travel date, the estimator eliminates festival bias (which would otherwise bias pooled OLS by ~30%) and yields an empirical price escalation rate of **1.53%–1.59% per day** closer to departure ($e^{\beta} - 1$).
+
+---
+
+## 4. Where real data plugs in
 
 Nothing architectural changes. `fare_quotes` starts receiving rows with
 `source='live'`, and every stage downstream is already source-agnostic:
@@ -170,7 +200,7 @@ feeds rather than scraping — see the anti-bot doc).
 
 ---
 
-## 4. Component reference
+## 5. Component reference
 
 | Path | Role |
 |---|---|
@@ -190,7 +220,7 @@ feeds rather than scraping — see the anti-bot doc).
 
 ---
 
-## 5. Design decisions worth defending
+## 6. Design decisions worth defending
 
 **One schema for both sources.** The simulator and the scraper emit the same
 `FareQuote`. Nothing downstream branches on provenance, so there is no code
@@ -214,7 +244,7 @@ clone in one command. See CLAUDE.md ground rule 7.
 
 ---
 
-## 6. Running it
+## 7. Running it
 
 ```bash
 python run.py

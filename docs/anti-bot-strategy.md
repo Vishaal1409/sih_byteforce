@@ -199,6 +199,23 @@ Option 3 is the one that actually fits the problem statement. Scraping is how a
 prototype demonstrates the pipeline; a statutory return is how a national
 statistic gets collected.
 
+```mermaid
+flowchart LR
+    subgraph P1["Phase 1: Prototype (Current)"]
+        A["Headless Browser Scraper<br/>Playwright Chromium"] -->|Public Access| B["Fallback Simulation<br/>Tagged Provenance"]
+    end
+
+    subgraph P2["Phase 2: Commercial Aggregation"]
+        C["GDS / OTA B2B APIs<br/>Amadeus, Sabre, Travelport"] -->|Authorized Feeds| D["Clean Analytic Ingestion"]
+    end
+
+    subgraph P3["Phase 3: National Regulatory Pipeline"]
+        E["Mandated Airline Feeds<br/>MoCA / DGCA Statutory Mandate"] -->|Daily Official Return| F["Official APIx Engine<br/>MoSPI / RBI Production"]
+    end
+
+    P1 -.-> P2 -.-> P3
+```
+
 ---
 
 ## 6. Honest assessment
