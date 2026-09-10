@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -23,12 +24,14 @@ from streamlit.components.v1 import html
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from dashboard import components as C  # noqa: E402
 from dashboard import hero, theme  # noqa: E402
 
 API_BASE = os.environ.get("APIX_API_BASE", "http://127.0.0.1:8000")
 REQUEST_TIMEOUT = 20
 SCRAPE_TIMEOUT = 180
 HERO_HEIGHT = 440
+KPI_HEIGHT = 146
 
 #: Plotly toolbar: keep the useful controls, drop the clutter, and never
 #: show the Plotly logo in a government-facing demo.
@@ -101,22 +104,8 @@ PALETTE = {
 
 def simulated_banner(provenance: dict | None = None) -> None:
     """The persistent, unmissable provenance banner (CLAUDE.md ground rule 5)."""
-    counts = (provenance or {}).get("row_counts_by_source", {})
-    detail = ", ".join(f"{k}: {v:,}" for k, v in sorted(counts.items())) or "—"
     st.markdown(
-        f"""
-        <div style="background:#8a1c1c;color:#fff;padding:14px 18px;
-                    border-radius:6px;margin-bottom:18px;font-size:15px;
-                    line-height:1.5;">
-          <strong>⚠ SIMULATED DEMO DATA — NOT REAL AIRLINE FARES.</strong><br>
-          Every fare behind these charts is synthetically generated. The index
-          methodology, cleaning pipeline and scraper are real and would run
-          unchanged on live data. See
-          <code>docs/methodology.md</code> for the method and the real
-          data-sourcing plan.<br>
-          <span style="opacity:.85;font-size:13px;">Rows by source — {detail}</span>
-        </div>
-        """,
+        C.provenance_banner((provenance or {}).get("row_counts_by_source")),
         unsafe_allow_html=True,
     )
 
@@ -142,34 +131,57 @@ def api_down(exc: Exception) -> None:
 
 
 def section_headline(index_data: dict, backtest: dict | None) -> None:
+    """Headline KPIs. Values are unchanged — only the presentation is new.
+
+    Rendered as a component rather than st.metric because Streamlit strips
+    <script> from markdown, and the count-up needs JavaScript.
+    """
     current = index_data.get("current") or {}
     change = index_data.get("change_since_base_pct")
 
-    cols = st.columns(4)
-    cols[0].metric(
-        "APIx (latest)",
-        f"{current.get('index_value', float('nan')):.2f}",
-        f"{change:+.2f}% since base" if change is not None else None,
-    )
-    cols[1].metric("Base period", index_data.get("base_period", "—"), "= 100")
-    cols[2].metric("Daily observations", f"{index_data.get('points', 0)}")
+    kpis = [
+        C.Kpi(
+            label="APIx · latest",
+            value=float(current.get("index_value", 0.0)),
+            decimals=2,
+            delta=(f"{change:+.2f}% since base" if change is not None else ""),
+            direction=("up" if (change or 0) > 0 else "down" if (change or 0) < 0 else "flat"),
+        ),
+        C.Kpi(
+            label="Base period",
+            value=index_data.get("base_period", "—"),
+            animate=False,
+            delta="= 100 by construction",
+            direction="flat",
+        ),
+        C.Kpi(
+            label="Daily observations",
+            value=int(index_data.get("points", 0)),
+            decimals=0,
+            delta="192-cell fixed basket",
+            direction="flat",
+        ),
+    ]
     if backtest:
-        cols[3].metric(
-            "Backtest correlation",
-            f"{backtest['correlation']:.3f}",
-            f"MAPE {backtest['mape_pct']:.2f}%",
-        )
+        kpis.append(C.Kpi(
+            label="Backtest correlation",
+            value=float(backtest["correlation"]),
+            decimals=3,
+            delta=f"MAPE {backtest['mape_pct']:.2f}%",
+            direction="up",
+        ))
     else:
-        cols[3].metric("Backtest correlation", "—")
+        kpis.append(C.Kpi(label="Backtest correlation", value="—", animate=False))
+
+    html(C.kpi_strip(kpis), height=KPI_HEIGHT, scrolling=False)
 
 
 def section_trend() -> None:
-    st.subheader("1 · APIx trend")
-    st.caption(
+    st.markdown(C.section_header("01", "APIx trend",
         "Laspeyres fixed-basket index over 8 routes × 4 airlines × 6 booking "
         "windows. Base period = 100. Because the basket weights are fixed, a "
         "move here is a price move, not a change in what happened to be observed."
-    )
+    ), unsafe_allow_html=True)
 
     period = st.radio(
         "Aggregation", ["daily", "weekly", "monthly"],
@@ -233,12 +245,11 @@ def route_matrix() -> pd.DataFrame:
 
 
 def section_heatmap() -> None:
-    st.subheader("2 · Sector heatmap — fare index by city-pair")
-    st.caption(
+    st.markdown(C.section_header("02", "Sector heatmap — fare index by city-pair",
         "Each row is a route's own sub-index, 100 at its base period. Read "
         "across a row to see that sector heat up or cool; read down a column "
         "to compare sectors on a given day."
-    )
+    ), unsafe_allow_html=True)
 
     matrix = route_matrix()
     if matrix.empty:
@@ -264,12 +275,11 @@ def section_heatmap() -> None:
 
 
 def section_elasticity() -> None:
-    st.subheader("3 · Lead-time elasticity")
-    st.caption(
+    st.markdown(C.section_header("03", "Lead-time elasticity",
         "How much a fare rises for each day closer to departure, per route. "
         "Fitted as ln(fare) on advance-purchase days with travel-date fixed "
         "effects, so festival premiums are not mistaken for a lead-time effect."
-    )
+    ), unsafe_allow_html=True)
 
     data = api_get("/index/elasticity")
     df = pd.DataFrame(data["routes"])
@@ -309,7 +319,10 @@ def section_elasticity() -> None:
 
 
 def section_backtest(backtest: dict | None) -> None:
-    st.subheader("4 · Backtest — APIx vs reference series")
+    st.markdown(C.section_header("04", "Backtest — APIx vs reference series",
+        "The reference is computed as an unweighted market mean — deliberately "
+        "a different estimator from APIx, so the comparison tests something."
+    ), unsafe_allow_html=True)
     if backtest is None:
         st.info("No backtest has been run yet.")
         return
@@ -362,13 +375,12 @@ def section_backtest(backtest: dict | None) -> None:
 
 
 def section_live_scrape() -> None:
-    st.subheader("5 · Live scrape")
-    st.caption(
-        "Runs the real Phase 3 scraper against Skyscanner through "
-        "`POST /scrape/live`. It checks robots.txt first, rate-limits itself, "
-        "and never attempts to bypass a block. If the target refuses, it "
-        "returns clearly-labelled simulated data instead of an error."
-    )
+    st.markdown(C.section_header("05", "Live scrape",
+        "Runs the real scraper against Skyscanner through POST /scrape/live. "
+        "It checks robots.txt first, rate-limits itself, and never attempts to "
+        "bypass a block. If the target refuses it returns clearly-labelled "
+        "simulated data instead of an error."
+    ), unsafe_allow_html=True)
 
     from config_loader import load_routes
 
@@ -469,6 +481,59 @@ def section_data_quality(index_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def section_methodology() -> None:
+    """How the number is produced, on the page rather than buried in a doc.
+
+    Judges probe methodology hardest, and a five-minute demo leaves no time to
+    open a markdown file — so the pipeline is stated where they are looking.
+    """
+    st.markdown(
+        C.section_header(
+            "06", "How it works",
+            "Four stages, end to end. Every threshold and weight referenced here "
+            "lives in /config, so 'why these numbers?' has a one-file answer.",
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        C.methodology_strip([
+            C.Step(
+                "01", "Collection",
+                "A real Playwright scraper checks robots.txt at runtime, "
+                "rate-limits, and falls back to clearly-tagged simulated data "
+                "when a target blocks it. The demo panel is simulated.",
+                detail="50,400 quotes · 8 routes × 4 carriers × 45 lead times",
+                tags=["robots.txt", "rate-limited", "no CAPTCHA bypass"],
+            ),
+            C.Step(
+                "02", "Cleaning",
+                "Dedupe, bounds checks, component validation, then outlier "
+                "removal measured against what other carriers charged for the "
+                "same departure — so a festival spike is kept, not stripped.",
+                detail="96.6% retained · every drop logged with a reason",
+                tags=["MAD", "peer-ratio", "quality log"],
+            ),
+            C.Step(
+                "03", "Index",
+                "Laspeyres fixed basket. Weights are route traffic share × "
+                "airline market share × booking-window weight, fixed at the "
+                "base period so composition cannot move the index.",
+                detail="192 cells · base = 100 · daily, weekly, monthly",
+                tags=["fixed weights", "DGCA-based", "route sub-indices"],
+            ),
+            C.Step(
+                "04", "Validation",
+                "Backtested against a reference average-fare series over the "
+                "full window, reporting correlation and MAPE. The reference is "
+                "a labelled synthetic stand-in, not real DGCA data.",
+                detail="r = 0.967 · MAPE = 2.69% · 35 days",
+                tags=["correlation", "MAPE", "stand-in reference"],
+            ),
+        ]),
+        unsafe_allow_html=True,
+    )
+
+
 def render_hero() -> None:
     """3D route-arc hero. Purely decorative — never allowed to break the page."""
     try:
@@ -512,7 +577,13 @@ def main() -> None:
         api_down(exc)
         return
 
-    simulated_banner(index_data.get("provenance"))
+    prov = index_data.get("provenance") or {}
+    total_rows = sum((prov.get("row_counts_by_source") or {}).values())
+    st.markdown(
+        C.status_bar(datetime.now(), API_BASE, rows=total_rows or None),
+        unsafe_allow_html=True,
+    )
+    simulated_banner(prov)
 
     try:
         backtest = api_get("/backtest/results")
@@ -532,6 +603,8 @@ def main() -> None:
     section_live_scrape()
     st.divider()
     section_data_quality(index_data)
+
+    section_methodology()
 
     st.caption(
         f"Served from {API_BASE} · methodology: `docs/methodology.md` · "

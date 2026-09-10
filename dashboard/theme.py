@@ -418,6 +418,80 @@ div[data-baseweb="popover"] li:hover {{ background: var(--apx-surface-2) !import
 
 ::selection {{ background: rgba(34,211,238,.28); color: #fff; }}
 
+/* ---------- methodology strip ------------------------------------------ */
+
+.apx-steps {{
+    display: grid; gap: var(--apx-gap);
+    grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+    margin: var(--apx-s3) 0 var(--apx-s2);
+    counter-reset: apxstep;
+}}
+.apx-step {{
+    position: relative;
+    padding: var(--apx-s5) var(--apx-s4) var(--apx-s4);
+    background: linear-gradient(180deg, rgba(19,33,54,.72), rgba(13,23,40,.72));
+    border: 1px solid var(--apx-border);
+    border-radius: var(--apx-radius);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: transform var(--apx-dur) var(--apx-ease),
+                border-color var(--apx-dur) var(--apx-ease),
+                box-shadow var(--apx-dur) var(--apx-ease);
+}}
+.apx-step:hover {{
+    transform: translateY(-3px);
+    border-color: var(--apx-border-bright);
+    box-shadow: var(--apx-shadow-lift), var(--apx-glow);
+}}
+/* Connector arrows between stages, hidden when the grid wraps. */
+.apx-step:not(:last-child)::after {{
+    content: "→";
+    position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+    color: var(--apx-border-bright); font-size: 1.05rem; z-index: 2;
+}}
+@media (max-width: 1100px) {{ .apx-step::after {{ display: none; }} }}
+
+.apx-step-num {{
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 8px;
+    font-family: var(--apx-mono); font-size: .74rem; font-weight: 700;
+    color: var(--apx-accent);
+    background: rgba(34,211,238,.10);
+    border: 1px solid rgba(34,211,238,.28);
+    margin-bottom: var(--apx-s3);
+}}
+.apx-step-title {{
+    font-size: .98rem; font-weight: 660; letter-spacing: -.012em;
+    color: var(--apx-text); margin-bottom: 6px;
+}}
+.apx-step-body {{ font-size: .845rem; line-height: 1.6; color: var(--apx-text-muted); }}
+.apx-step-detail {{
+    margin-top: var(--apx-s3); padding-top: var(--apx-s3);
+    border-top: 1px dashed var(--apx-border);
+    font-family: var(--apx-mono); font-size: .74rem; color: var(--apx-accent-soft);
+}}
+.apx-step-tags {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--apx-s3); }}
+.apx-step-tag {{
+    font-family: var(--apx-mono); font-size: .655rem; letter-spacing: .05em;
+    color: var(--apx-text-dim);
+    background: rgba(7,14,28,.6);
+    border: 1px solid var(--apx-border);
+    border-radius: 999px; padding: 2px 8px;
+}}
+
+/* ---------- section entry animation ------------------------------------ */
+
+@keyframes apx-rise {{
+    from {{ opacity: 0; transform: translateY(14px); }}
+    to   {{ opacity: 1; transform: none; }}
+}}
+.apx-section, .apx-section-note, .apx-steps, .apx-livebar, .apx-banner {{
+    animation: apx-rise 420ms var(--apx-ease) both;
+}}
+[data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {{
+    animation: apx-rise 460ms var(--apx-ease) both;
+}}
+
 /* ---------- responsive -------------------------------------------------- */
 
 /* Projector / laptop at ~1366px: tighten padding, keep four KPIs on one row. */
