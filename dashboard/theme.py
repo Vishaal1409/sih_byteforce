@@ -492,6 +492,53 @@ div[data-baseweb="popover"] li:hover {{ background: var(--apx-surface-2) !import
     animation: apx-rise 460ms var(--apx-ease) both;
 }}
 
+/* ---------- segmented control (the daily/weekly/monthly toggle) -------- */
+
+[data-testid="stRadio"] > div[role="radiogroup"] {{
+    display: inline-flex; gap: 3px;
+    background: rgba(13,23,40,.85);
+    border: 1px solid var(--apx-border);
+    border-radius: 11px; padding: 3px;
+}}
+[data-testid="stRadio"] > div[role="radiogroup"] > label {{
+    margin: 0 !important; padding: 5px 15px;
+    border-radius: 8px; cursor: pointer;
+    font-size: .845rem; font-weight: 580;
+    color: var(--apx-text-muted) !important;
+    transition: background var(--apx-dur) var(--apx-ease),
+                color var(--apx-dur) var(--apx-ease);
+}}
+[data-testid="stRadio"] > div[role="radiogroup"] > label:hover {{
+    background: rgba(34,211,238,.08);
+    color: var(--apx-text) !important;
+}}
+/* Hide the dot; the selected pill is the affordance. */
+[data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child {{ display: none; }}
+[data-testid="stRadio"] > div[role="radiogroup"] > label:has(input:checked) {{
+    background: linear-gradient(180deg, rgba(34,211,238,.20), rgba(34,211,238,.11));
+    border: 1px solid rgba(34,211,238,.38);
+    color: var(--apx-accent-soft) !important;
+    box-shadow: 0 2px 10px -4px rgba(34,211,238,.5);
+}}
+
+/* ---------- staggered section entry ------------------------------------ */
+/* Sections settle in sequence rather than all at once, which reads as
+   deliberate rather than as a page-load flash. */
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-child(-n+14) {{
+    animation: apx-rise 400ms var(--apx-ease) both;
+}}
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-child(2)  {{ animation-delay: 30ms; }}
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-child(3)  {{ animation-delay: 60ms; }}
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-child(4)  {{ animation-delay: 90ms; }}
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-child(5)  {{ animation-delay: 120ms; }}
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:nth-child(n+6) {{ animation-delay: 150ms; }}
+
+/* ---------- focus visibility ------------------------------------------- */
+:focus-visible {{
+    outline: 2px solid var(--apx-accent-soft);
+    outline-offset: 2px; border-radius: 4px;
+}}
+
 /* ---------- responsive -------------------------------------------------- */
 
 /* Projector / laptop at ~1366px: tighten padding, keep four KPIs on one row. */
@@ -518,6 +565,9 @@ div[data-baseweb="popover"] li:hover {{ background: var(--apx-surface-2) !import
         scroll-behavior: auto !important;
     }}
     .apx-card:hover, .apx-kpi:hover, .stButton > button:hover {{ transform: none; }}
+    [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] {{
+        animation: none !important; opacity: 1 !important; transform: none !important;
+    }}
 }}
 """
 
