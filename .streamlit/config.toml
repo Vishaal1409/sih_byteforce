@@ -1,0 +1,19 @@
+# Streamlit's own theme. This matters beyond looks: st.plotly_chart defaults to
+# theme="streamlit", which restyles figures using these values, and Streamlit's
+# built-in widgets pick their colours from here too. Setting it dark means the
+# native chrome agrees with dashboard/theme.py instead of fighting it.
+#
+# Keep these in sync with PALETTE in dashboard/theme.py.
+
+[theme]
+base = "dark"
+primaryColor = "#22d3ee"
+backgroundColor = "#070e1c"
+secondaryBackgroundColor = "#0d1728"
+textColor = "#e8f0fb"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"

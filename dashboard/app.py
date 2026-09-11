@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -19,18 +20,44 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit.components.v1 import html
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from dashboard import components as C  # noqa: E402
+from dashboard import hero, theme  # noqa: E402
 
 API_BASE = os.environ.get("APIX_API_BASE", "http://127.0.0.1:8000")
 REQUEST_TIMEOUT = 20
 SCRAPE_TIMEOUT = 180
+HERO_HEIGHT = 440
+KPI_HEIGHT = 146
+
+#: Plotly toolbar: keep the useful controls, drop the clutter, and never
+#: show the Plotly logo in a government-facing demo.
+PLOTLY_CONFIG = {
+    "displaylogo": False,
+    "displayModeBar": False,
+    "responsive": True,
+}
 
 st.set_page_config(
-    page_title="APIx — Airfare Price Index (India)",
-    page_icon="✈",
+    page_title="APIx · Airfare Price Index — Live",
+    page_icon="✈️",
     layout="wide",
+    initial_sidebar_state="collapsed",
+    menu_items={
+        "about": (
+            "APIx — Real-time Airfare Price Index for India (SIH26056, MoSPI). "
+            "Demo runs on simulated fare data; see docs/methodology.md."
+        )
+    },
 )
+
+# Dark aviation theme: CSS custom properties for the page, and a matching
+# Plotly template so charts inherit the same palette instead of restating it.
+st.markdown(theme.inject_theme(), unsafe_allow_html=True)
+theme.register_plotly_theme()
 
 
 # ---------------------------------------------------------------------------
@@ -68,27 +95,17 @@ def api_post_scrape(origin: str, dest: str, days_ahead: int) -> dict:
 # Chrome
 # ---------------------------------------------------------------------------
 
-PALETTE = {"apix": "#1f4e79", "reference": "#c0504d", "accent": "#2e7d32"}
+PALETTE = {
+    "apix": theme.PALETTE["accent"],
+    "reference": theme.PALETTE["warn"],
+    "accent": theme.PALETTE["blue"],
+}
 
 
 def simulated_banner(provenance: dict | None = None) -> None:
     """The persistent, unmissable provenance banner (CLAUDE.md ground rule 5)."""
-    counts = (provenance or {}).get("row_counts_by_source", {})
-    detail = ", ".join(f"{k}: {v:,}" for k, v in sorted(counts.items())) or "—"
     st.markdown(
-        f"""
-        <div style="background:#8a1c1c;color:#fff;padding:14px 18px;
-                    border-radius:6px;margin-bottom:18px;font-size:15px;
-                    line-height:1.5;">
-          <strong>⚠ SIMULATED DEMO DATA — NOT REAL AIRLINE FARES.</strong><br>
-          Every fare behind these charts is synthetically generated. The index
-          methodology, cleaning pipeline and scraper are real and would run
-          unchanged on live data. See
-          <code>docs/methodology.md</code> for the method and the real
-          data-sourcing plan.<br>
-          <span style="opacity:.85;font-size:13px;">Rows by source — {detail}</span>
-        </div>
-        """,
+        C.provenance_banner((provenance or {}).get("row_counts_by_source")),
         unsafe_allow_html=True,
     )
 
@@ -114,34 +131,57 @@ def api_down(exc: Exception) -> None:
 
 
 def section_headline(index_data: dict, backtest: dict | None) -> None:
+    """Headline KPIs. Values are unchanged — only the presentation is new.
+
+    Rendered as a component rather than st.metric because Streamlit strips
+    <script> from markdown, and the count-up needs JavaScript.
+    """
     current = index_data.get("current") or {}
     change = index_data.get("change_since_base_pct")
 
-    cols = st.columns(4)
-    cols[0].metric(
-        "APIx (latest)",
-        f"{current.get('index_value', float('nan')):.2f}",
-        f"{change:+.2f}% since base" if change is not None else None,
-    )
-    cols[1].metric("Base period", index_data.get("base_period", "—"), "= 100")
-    cols[2].metric("Daily observations", f"{index_data.get('points', 0)}")
+    kpis = [
+        C.Kpi(
+            label="APIx · latest",
+            value=float(current.get("index_value", 0.0)),
+            decimals=2,
+            delta=(f"{change:+.2f}% since base" if change is not None else ""),
+            direction=("up" if (change or 0) > 0 else "down" if (change or 0) < 0 else "flat"),
+        ),
+        C.Kpi(
+            label="Base period",
+            value=index_data.get("base_period", "—"),
+            animate=False,
+            delta="= 100 by construction",
+            direction="flat",
+        ),
+        C.Kpi(
+            label="Daily observations",
+            value=int(index_data.get("points", 0)),
+            decimals=0,
+            delta="192-cell fixed basket",
+            direction="flat",
+        ),
+    ]
     if backtest:
-        cols[3].metric(
-            "Backtest correlation",
-            f"{backtest['correlation']:.3f}",
-            f"MAPE {backtest['mape_pct']:.2f}%",
-        )
+        kpis.append(C.Kpi(
+            label="Backtest correlation",
+            value=float(backtest["correlation"]),
+            decimals=3,
+            delta=f"MAPE {backtest['mape_pct']:.2f}%",
+            direction="up",
+        ))
     else:
-        cols[3].metric("Backtest correlation", "—")
+        kpis.append(C.Kpi(label="Backtest correlation", value="—", animate=False))
+
+    html(C.kpi_strip(kpis), height=KPI_HEIGHT, scrolling=False)
 
 
 def section_trend() -> None:
-    st.subheader("1 · APIx trend")
-    st.caption(
+    st.markdown(C.section_header("01", "APIx trend",
         "Laspeyres fixed-basket index over 8 routes × 4 airlines × 6 booking "
         "windows. Base period = 100. Because the basket weights are fixed, a "
         "move here is a price move, not a change in what happened to be observed."
-    )
+    ), unsafe_allow_html=True)
 
     period = st.radio(
         "Aggregation", ["daily", "weekly", "monthly"],
@@ -154,22 +194,37 @@ def section_trend() -> None:
         return
 
     fig = go.Figure()
+    # Soft wash beneath the line, anchored at the base level rather than zero
+    # so the fill reads as "distance from base", which is what the index means.
+    fig.add_trace(go.Scatter(
+        x=df["period"], y=df["index_value"],
+        mode="lines", line=dict(width=0), fill="tozeroy",
+        fillcolor="rgba(34,211,238,.10)",
+        hoverinfo="skip", showlegend=False,
+    ))
     fig.add_trace(go.Scatter(
         x=df["period"], y=df["index_value"], mode="lines+markers",
-        name="APIx", line=dict(color=PALETTE["apix"], width=2.5),
-        hovertemplate="%{x}<br>APIx %{y:.2f}<extra></extra>",
+        name="APIx",
+        line=dict(color=PALETTE["apix"], width=2.6, shape="spline", smoothing=0.4),
+        marker=dict(size=5, color=PALETTE["apix"],
+                    line=dict(width=1.5, color="rgba(7,14,28,.9)")),
+        hovertemplate="<b>%{x}</b><br>APIx <b>%{y:.2f}</b><extra></extra>",
     ))
     fig.add_hline(
         y=100, line_dash="dot", line_color="#999",
         annotation_text="base = 100", annotation_position="bottom right",
     )
+    lo_y, hi_y = float(df["index_value"].min()), float(df["index_value"].max())
+    pad = max(0.6, (hi_y - lo_y) * 0.18)
     fig.update_layout(
-        height=420, template="plotly_white", margin=dict(t=30, b=40),
+        height=430, margin=dict(t=30, b=64),
         xaxis_title="Query date (date the fare was observed)",
         yaxis_title="APIx",
+        yaxis=dict(range=[min(lo_y, 100) - pad, hi_y + pad]),
         showlegend=False,
+        hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     lo, hi = df["index_value"].min(), df["index_value"].max()
     st.caption(
@@ -192,7 +247,9 @@ def route_matrix() -> pd.DataFrame:
         sub = pd.DataFrame(d["series"])
         if sub.empty:
             continue
-        sub["route"] = f"{route.key}  ({route.name})"
+        # Code only: the full name does not fit the axis and was being cut
+        # mid-word ("yderabad)"). It is still shown wherever routes are picked.
+        sub["route"] = route.key
         frames.append(sub[["route", "period", "index_value"]])
 
     if not frames:
@@ -205,12 +262,11 @@ def route_matrix() -> pd.DataFrame:
 
 
 def section_heatmap() -> None:
-    st.subheader("2 · Sector heatmap — fare index by city-pair")
-    st.caption(
+    st.markdown(C.section_header("02", "Sector heatmap — fare index by city-pair",
         "Each row is a route's own sub-index, 100 at its base period. Read "
         "across a row to see that sector heat up or cool; read down a column "
         "to compare sectors on a given day."
-    )
+    ), unsafe_allow_html=True)
 
     matrix = route_matrix()
     if matrix.empty:
@@ -219,14 +275,26 @@ def section_heatmap() -> None:
 
     fig = px.imshow(
         matrix,
-        color_continuous_scale="RdYlGn_r",
+        color_continuous_scale=theme.HEAT_SCALE,
         origin="lower",
         aspect="auto",
         labels=dict(x="Query date", y="Route", color="Index"),
     )
-    fig.update_layout(height=420, template="plotly_white", margin=dict(t=30, b=40))
+    fig.update_traces(
+        hovertemplate="<b>%{y}</b><br>%{x}<br>Index <b>%{z:.1f}</b><extra></extra>",
+        xgap=1, ygap=1,
+    )
+    fig.update_layout(
+        # Extra bottom room: the -45deg date ticks eat vertical space and
+        # were pushing the axis title out of the plot area.
+        height=440, margin=dict(t=30, b=92, l=104),
+        coloraxis_colorbar=dict(
+            title="Index", thickness=11, len=0.85,
+            outlinewidth=0, ticks="outside", ticklen=3,
+        ),
+    )
     fig.update_xaxes(tickangle=-45)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     latest = matrix.iloc[:, -1].sort_values(ascending=False)
     st.caption(
@@ -236,12 +304,11 @@ def section_heatmap() -> None:
 
 
 def section_elasticity() -> None:
-    st.subheader("3 · Lead-time elasticity")
-    st.caption(
+    st.markdown(C.section_header("03", "Lead-time elasticity",
         "How much a fare rises for each day closer to departure, per route. "
         "Fitted as ln(fare) on advance-purchase days with travel-date fixed "
         "effects, so festival premiums are not mistaken for a lead-time effect."
-    )
+    ), unsafe_allow_html=True)
 
     data = api_get("/index/elasticity")
     df = pd.DataFrame(data["routes"])
@@ -252,17 +319,27 @@ def section_elasticity() -> None:
     df = df.sort_values("pct_change_per_day")
     fig = go.Figure(go.Bar(
         x=df["pct_change_per_day"], y=df["route"], orientation="h",
-        marker_color=PALETTE["accent"],
+        marker=dict(
+            color=df["pct_change_per_day"],
+            colorscale=[[0, theme.PALETTE["blue"]], [1, theme.PALETTE["accent"]]],
+            showscale=False,
+            line=dict(width=0),
+        ),
         text=[f"{v:.2f}%/day" for v in df["pct_change_per_day"]],
         textposition="outside",
-        hovertemplate="%{y}<br>%{x:.3f}%% per day<extra></extra>",
+        textfont=dict(color=theme.PALETTE["text_muted"], size=11.5),
+        customdata=df[["r_squared", "n_observations"]],
+        hovertemplate=(
+            "<b>%{y}</b><br>%{x:.3f}%% per day closer to departure"
+            "<br>R² %{customdata[0]:.3f} · n=%{customdata[1]:,}<extra></extra>"
+        ),
     ))
     fig.update_layout(
-        height=420, template="plotly_white", margin=dict(t=30, b=40, r=80),
+        height=430, margin=dict(t=30, b=64, r=86),
         xaxis_title="% fare rise per day closer to departure",
         yaxis_title="",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     with st.expander("Fit detail"):
         st.dataframe(
@@ -281,7 +358,10 @@ def section_elasticity() -> None:
 
 
 def section_backtest(backtest: dict | None) -> None:
-    st.subheader("4 · Backtest — APIx vs reference series")
+    st.markdown(C.section_header("04", "Backtest — APIx vs reference series",
+        "The reference is computed as an unweighted market mean — deliberately "
+        "a different estimator from APIx, so the comparison tests something."
+    ), unsafe_allow_html=True)
     if backtest is None:
         st.info("No backtest has been run yet.")
         return
@@ -305,20 +385,26 @@ def section_backtest(backtest: dict | None) -> None:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df["query_date"], y=df["index_value"], mode="lines+markers",
-        name="APIx (weighted index)", line=dict(color=PALETTE["apix"], width=2.5),
+        name="APIx (weighted index)",
+        line=dict(color=PALETTE["apix"], width=2.6, shape="spline", smoothing=0.4),
+        marker=dict(size=4.5),
+        hovertemplate="APIx <b>%{y:.2f}</b><extra></extra>",
     ))
     fig.add_trace(go.Scatter(
         x=df["query_date"], y=df["reference_value"], mode="lines+markers",
         name="Reference (synthetic, unweighted)",
-        line=dict(color=PALETTE["reference"], width=2, dash="dash"),
+        line=dict(color=PALETTE["reference"], width=2, dash="dot",
+                  shape="spline", smoothing=0.4),
+        marker=dict(size=4.5),
+        hovertemplate="Reference <b>%{y:.2f}</b><extra></extra>",
     ))
     fig.update_layout(
-        height=420, template="plotly_white", margin=dict(t=30, b=40),
+        height=430, margin=dict(t=44, b=64),
         xaxis_title="Query date", yaxis_title="Index (first common date = 100)",
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=PLOTLY_CONFIG)
 
     st.info(
         f"**The gap is the point.** APIx moves "
@@ -334,13 +420,12 @@ def section_backtest(backtest: dict | None) -> None:
 
 
 def section_live_scrape() -> None:
-    st.subheader("5 · Live scrape")
-    st.caption(
-        "Runs the real Phase 3 scraper against Skyscanner through "
-        "`POST /scrape/live`. It checks robots.txt first, rate-limits itself, "
-        "and never attempts to bypass a block. If the target refuses, it "
-        "returns clearly-labelled simulated data instead of an error."
-    )
+    st.markdown(C.section_header("05", "Live scrape",
+        "Runs the real scraper against Skyscanner through POST /scrape/live. "
+        "It checks robots.txt first, rate-limits itself, and never attempts to "
+        "bypass a block. If the target refuses it returns clearly-labelled "
+        "simulated data instead of an error."
+    ), unsafe_allow_html=True)
 
     from config_loader import load_routes
 
@@ -441,9 +526,90 @@ def section_data_quality(index_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def section_methodology() -> None:
+    """How the number is produced, on the page rather than buried in a doc.
+
+    Judges probe methodology hardest, and a five-minute demo leaves no time to
+    open a markdown file — so the pipeline is stated where they are looking.
+    """
+    st.markdown(
+        C.section_header(
+            "06", "How it works",
+            "Four stages, end to end. Every threshold and weight referenced here "
+            "lives in /config, so 'why these numbers?' has a one-file answer.",
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        C.methodology_strip([
+            C.Step(
+                "01", "Collection",
+                "A real Playwright scraper checks robots.txt at runtime, "
+                "rate-limits, and falls back to clearly-tagged simulated data "
+                "when a target blocks it. The demo panel is simulated.",
+                detail="50,400 quotes · 8 routes × 4 carriers × 45 lead times",
+                tags=["robots.txt", "rate-limited", "no CAPTCHA bypass"],
+            ),
+            C.Step(
+                "02", "Cleaning",
+                "Dedupe, bounds checks, component validation, then outlier "
+                "removal measured against what other carriers charged for the "
+                "same departure — so a festival spike is kept, not stripped.",
+                detail="96.6% retained · every drop logged with a reason",
+                tags=["MAD", "peer-ratio", "quality log"],
+            ),
+            C.Step(
+                "03", "Index",
+                "Laspeyres fixed basket. Weights are route traffic share × "
+                "airline market share × booking-window weight, fixed at the "
+                "base period so composition cannot move the index.",
+                detail="192 cells · base = 100 · daily, weekly, monthly",
+                tags=["fixed weights", "DGCA-based", "route sub-indices"],
+            ),
+            C.Step(
+                "04", "Validation",
+                "Backtested against a reference average-fare series over the "
+                "full window, reporting correlation and MAPE. The reference is "
+                "a labelled synthetic stand-in, not real DGCA data.",
+                detail="r = 0.967 · MAPE = 2.69% · 35 days",
+                tags=["correlation", "MAPE", "stand-in reference"],
+            ),
+        ]),
+        unsafe_allow_html=True,
+    )
+
+
+def render_hero() -> None:
+    """3D route-arc hero. Purely decorative — never allowed to break the page."""
+    try:
+        html(
+            hero.render(
+                eyebrow="Live index · SIH26056 · MoSPI",
+                title='Airfare Price Index <span class="grad">— Live</span>',
+                subtitle=(
+                    "A fixed-basket price index tracking Indian domestic airfares "
+                    "across 8 trunk routes, 4 carriers and 6 booking windows — so a "
+                    "move in the number is a move in price, not a change in what "
+                    "happened to be observed."
+                ),
+                height=HERO_HEIGHT,
+            ),
+            height=HERO_HEIGHT + 12,
+            scrolling=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # A missing asset or a WebGL problem must not cost us the dashboard.
+        st.title("APIx — Real-time Airfare Price Index for India")
+        st.caption(
+            "SIH26056 · Ministry of Statistics and Programme Implementation · prototype"
+        )
+        st.caption(f"(hero visual unavailable: {type(exc).__name__})")
+
+
+
+
 def main() -> None:
-    st.title("APIx — Real-time Airfare Price Index for India")
-    st.caption("SIH26056 · Ministry of Statistics and Programme Implementation · prototype")
+    render_hero()
 
     try:
         index_data = api_get("/index", period="daily")
@@ -456,7 +622,13 @@ def main() -> None:
         api_down(exc)
         return
 
-    simulated_banner(index_data.get("provenance"))
+    prov = index_data.get("provenance") or {}
+    total_rows = sum((prov.get("row_counts_by_source") or {}).values())
+    st.markdown(
+        C.status_bar(datetime.now(), API_BASE, rows=total_rows or None),
+        unsafe_allow_html=True,
+    )
+    simulated_banner(prov)
 
     try:
         backtest = api_get("/backtest/results")
@@ -476,6 +648,8 @@ def main() -> None:
     section_live_scrape()
     st.divider()
     section_data_quality(index_data)
+
+    section_methodology()
 
     st.caption(
         f"Served from {API_BASE} · methodology: `docs/methodology.md` · "
